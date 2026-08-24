@@ -10,6 +10,7 @@ import {
   ScanRun,
 } from '../database/entities';
 import { MercadoLibreModule } from '../mercadolibre/mercadolibre.module';
+import { BootstrapService } from './bootstrap.service';
 import { BrandsStoreService } from './brands-store.service';
 import { CatalogController } from './catalog.controller';
 import { CategoriesStoreService } from './categories-store.service';
@@ -36,6 +37,7 @@ import { ScanService } from './scan.service';
     ProductsStoreService,
     ScanService,
     CrawlerService,
+    BootstrapService,
   ],
   exports: [
     CategoriesStoreService,
