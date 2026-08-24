@@ -10,7 +10,8 @@
       "package-lock.json",
       "next.config.ts",
       "components.json",
-      "Dockerfile"
+      "Dockerfile",
+      "railway.json"
     ]
   },
   "deploy": {
