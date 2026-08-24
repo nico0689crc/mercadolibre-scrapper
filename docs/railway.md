@@ -26,7 +26,7 @@ arrancar (`migrationsRun: true`), no hace falta un `preDeployCommand`.
 
 ```
 NODE_ENV=production
-PORT=                      # lo inyecta Railway, no lo definas
+PORT=4100                  # fijo, para poder referenciarlo desde el frontend
 BIND_HOST=::               # ver nota de IPv6 mas abajo
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 DATABASE_SSL=false         # true solo si conectas por el proxy externo
@@ -54,10 +54,16 @@ El `ML_REDIRECT_URI` tiene que quedar cargado identico en el DevCenter de ML.
 
 ```
 NODE_ENV=production
-PORT=                      # lo inyecta Railway
-API_URL=http://backend.railway.internal:${{backend.PORT}}/api
+HOSTNAME=::
+API_URL=http://backend.railway.internal:4100/api
 NEXT_PUBLIC_API_URL=https://${{backend.RAILWAY_PUBLIC_DOMAIN}}/api
 ```
+
+> **`${{backend.PORT}}` no resuelve.** PORT lo inyecta Railway en el contenedor, pero no es
+> una variable del servicio referenciable desde otro. Si la usas, `API_URL` queda como
+> `http://backend.railway.internal:/api` y el frontend falla con `fetch failed` — con la
+> pagina respondiendo 200 y la tabla vacia, que es lo dificil de diagnosticar.
+> La solucion es fijar `PORT=4100` en el backend y escribir el puerto literal aca.
 
 - `API_URL` la usan los Server Components: va por la **red privada**, sin salir a internet.
 - `NEXT_PUBLIC_API_URL` la usa el browser: tiene que ser la URL **publica**.
