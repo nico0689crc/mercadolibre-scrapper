@@ -150,6 +150,10 @@ Guia completa en `docs/railway.md`. Lo esencial:
   porque no sigue al Root Directory.
 - `railway.json` en cada app con `builder: DOCKERFILE`. Railway construye la **ultima etapa**
   del Dockerfile, que en ambos es `production`.
+- Los **`watchPatterns` tambien se escriben desde la raiz del repo** (`/backend/**`,
+  `/frontend/**`), no desde el Root Directory. Con `src/**` no matchean nada y cada push
+  queda en **SKIPPED** sin mensaje de error. El `dockerfilePath` si es relativo al Root
+  Directory.
 - La base llega como `DATABASE_URL` y gana sobre las variables sueltas. Las migraciones
   corren solas al arrancar.
 - **La red privada no existe durante el build**: por eso `NEXT_PUBLIC_API_URL` apunta al

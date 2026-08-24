@@ -12,6 +12,11 @@ El repo es un **monorepo aislado**: `backend/` y `frontend/` no comparten codigo
 > El **Config file path se escribe absoluto** y NO sigue al Root Directory. Es el error
 > mas comun: poner `railway.json` a secas y que Railway no lo encuentre.
 
+> Lo mismo pasa con los **watch paths**: son patrones estilo gitignore contra los paths del
+> repo, no del Root Directory. Con `src/**` no matchean nada y **cada push queda en SKIPPED**
+> sin explicacion; van `/backend/**` y `/frontend/**`. El `dockerfilePath`, en cambio, si es
+> relativo al Root Directory.
+
 Los `railway.json` ya estan en el repo con `builder: DOCKERFILE`, healthcheck y watch paths.
 Railway construye la **ultima etapa** del Dockerfile, que en ambos es `production` — no hace
 falta configurar target.

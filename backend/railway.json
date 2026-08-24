@@ -4,11 +4,7 @@
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile",
     "watchPatterns": [
-      "src/**",
-      "package.json",
-      "package-lock.json",
-      "Dockerfile",
-      "railway.json"
+      "/backend/**"
     ]
   },
   "deploy": {
