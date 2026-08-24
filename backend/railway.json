@@ -12,6 +12,9 @@
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
-    "drainingSeconds": 15
+    "drainingSeconds": 15,
+    "preDeployCommand": [
+      "node -e \"if(process.env.ALLOW_DB_RESET!=='true'){console.log('DB_RESET_SKIPPED');process.exit(0)}const{Client}=require('pg');const c=new Client({connectionString:process.env.DATABASE_URL});c.connect().then(()=>c.query('TRUNCATE TABLE products, category_brands, scan_runs, brands, categories, crawler_state RESTART IDENTITY CASCADE')).then(()=>c.query('SELECT (SELECT count(*) FROM categories) cats,(SELECT count(*) FROM products) prods,(SELECT count(*) FROM brands) brands,(SELECT count(*) FROM migrations) migs')).then(r=>{console.log('DB_RESET_OK',JSON.stringify(r.rows[0]));return c.end()}).then(()=>process.exit(0)).catch(e=>{console.error('DB_RESET_FAIL',e.message);process.exit(1)})\""
+    ]
   }
 }
