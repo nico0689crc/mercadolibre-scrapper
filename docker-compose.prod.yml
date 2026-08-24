@@ -1,0 +1,34 @@
+name: scrapper-products-prod
+
+services:
+  backend:
+    build:
+      context: ./backend
+      target: production
+    container_name: scrapper-backend-prod
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: ${BACKEND_PORT:-4100}
+    ports:
+      - "${BACKEND_PORT:-4100}:${BACKEND_PORT:-4100}"
+
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4100/api}
+    container_name: scrapper-frontend-prod
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${FRONTEND_PORT:-3100}
+      API_URL: http://backend:${BACKEND_PORT:-4100}/api
+    ports:
+      - "${FRONTEND_PORT:-3100}:${FRONTEND_PORT:-3100}"
+    depends_on:
+      backend:
+        condition: service_started

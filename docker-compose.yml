@@ -1,0 +1,108 @@
+name: scrapper-products
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: scrapper-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scrapper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scrapper}
+      POSTGRES_DB: ${POSTGRES_DB:-scrapper}
+    ports:
+      # 5433 lo ocupa el postgres del stack assetfy.
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      # Postgres 18+ quiere el mount en /var/lib/postgresql, no en .../data:
+      # asi los datos quedan en un subdirectorio por version y pg_upgrade funciona.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scrapper} -d ${POSTGRES_DB:-scrapper}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      target: development
+    container_name: scrapper-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: development
+      PORT: ${BACKEND_PORT:-4100}
+      FRONTEND_URL: http://localhost:${FRONTEND_PORT:-3100}
+      # Dentro de compose la base se alcanza por el nombre del servicio.
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+    ports:
+      - "${BACKEND_PORT:-4100}:${BACKEND_PORT:-4100}"
+    volumes:
+      # Codigo montado para hot reload; node_modules queda el de la imagen.
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      # dist aislado del host: si no, `npm run build` local pisa el build del watch.
+      - backend_dist:/app/dist
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -qO- http://127.0.0.1:${BACKEND_PORT:-4100}/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      target: development
+    container_name: scrapper-frontend
+    restart: unless-stopped
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      NODE_ENV: development
+      PORT: ${FRONTEND_PORT:-3100}
+      # Server Components hablan con el backend por la red interna de compose.
+      API_URL: http://backend:${BACKEND_PORT:-4100}/api
+      # El browser lo alcanza por el puerto publicado en el host.
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-4100}/api
+    ports:
+      - "${FRONTEND_PORT:-3100}:${FRONTEND_PORT:-3100}"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+    depends_on:
+      backend:
+        condition: service_started
+
+  # Perfil opcional: docker compose --profile tunnel up
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: scrapper-ngrok
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command:
+      - http
+      - --url=${NGROK_DOMAIN}
+      - backend:${BACKEND_PORT:-4100}
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    ports:
+      # Panel de inspeccion de ngrok
+      - "4140:4040"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  backend_node_modules:
+  backend_dist:
+  frontend_node_modules:
+  frontend_next:
