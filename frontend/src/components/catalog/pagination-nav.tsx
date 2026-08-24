@@ -80,8 +80,9 @@ export function PaginationNav({
                 <Button
                   asChild
                   variant={page === current ? "outline" : "ghost"}
-                  size="icon"
-                  className="tabular-nums"
+                  size="sm"
+                  // Con miles de paginas el numero no entra en un boton cuadrado.
+                  className="min-w-8 px-2 tabular-nums"
                 >
                   <Link
                     href={href((page - 1) * pageSize)}

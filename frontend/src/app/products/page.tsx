@@ -17,7 +17,7 @@ import type { ProductList, ProductSort, SortDir } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
 const CRUMBS = [{ href: "/", label: "Resumen" }, { label: "Productos" }];
 const SORTS: ProductSort[] = ["name", "brand", "category", "lastSeenAt"];
 

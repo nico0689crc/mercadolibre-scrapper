@@ -16,7 +16,7 @@ import type { BrandList, BrandSort, SortDir } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
 const CRUMBS = [{ href: "/", label: "Resumen" }, { label: "Marcas" }];
 const SORTS: BrandSort[] = ["name", "categories", "products"];
 
