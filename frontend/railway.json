@@ -1,0 +1,23 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": [
+      "src/**",
+      "public/**",
+      "package.json",
+      "package-lock.json",
+      "next.config.ts",
+      "components.json",
+      "Dockerfile"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10,
+    "drainingSeconds": 15
+  }
+}
