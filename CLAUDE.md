@@ -139,6 +139,24 @@ Por eso el backend se autolimita:
 
 Medido: 418 requests en las primeras 11 corridas, con rafagas de concurrencia 3-6, **cero 429**.
 
+## Deploy en Railway
+
+Guia completa en `docs/railway.md`. Lo esencial:
+
+- Monorepo **aislado**: tres servicios (postgres, backend, frontend). Root Directory
+  `/backend` y `/frontend`, pero el **Config file path va absoluto** (`/backend/railway.json`)
+  porque no sigue al Root Directory.
+- `railway.json` en cada app con `builder: DOCKERFILE`. Railway construye la **ultima etapa**
+  del Dockerfile, que en ambos es `production`.
+- La base llega como `DATABASE_URL` y gana sobre las variables sueltas. Las migraciones
+  corren solas al arrancar.
+- **La red privada no existe durante el build**: por eso `NEXT_PUBLIC_API_URL` apunta al
+  dominio publico y `API_URL` a `backend.railway.internal`.
+- **Entornos legacy de Railway (pre oct-2025) son solo IPv6**: ahi hace falta `BIND_HOST=::`.
+- `SEED_ON_BOOT=true` sincroniza el arbol si `categories` esta vacia; `CRAWLER_AUTOSTART=true`
+  prende el crawler. Ambos corren en segundo plano para no colgar el healthcheck.
+- **Backend con una sola replica**: el crawler no tiene lock distribuido.
+
 ## backend/ (NestJS)
 
 - Config tipada por namespace con `registerAs`: `app.*` y `mercadolibre.*`.

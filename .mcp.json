@@ -12,6 +12,10 @@
         "-c",
         "frontend"
       ]
+    },
+    "railway": {
+      "type": "http",
+      "url": "https://mcp.railway.com/"
     }
   }
 }
