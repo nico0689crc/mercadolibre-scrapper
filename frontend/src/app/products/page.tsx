@@ -1,28 +1,25 @@
 import Link from "next/link";
-import { Search, X } from "lucide-react";
+import { X } from "lucide-react";
 
 import { PaginationNav } from "@/components/catalog/pagination-nav";
+import { ProductsTable } from "@/components/catalog/products-table";
+import { SearchForm } from "@/components/catalog/search-form";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageShell } from "@/components/layout/page-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { getProducts } from "@/lib/api";
-import type { ProductList } from "@/types/api";
+import { count } from "@/lib/format";
+import type { ProductList, ProductSort, SortDir } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
+const CRUMBS = [{ href: "/", label: "Resumen" }, { label: "Productos" }];
+const SORTS: ProductSort[] = ["name", "brand", "category", "lastSeenAt"];
 
 function one(value: string | string[] | undefined): string | undefined {
   return typeof value === "string" && value ? value : undefined;
@@ -34,153 +31,133 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
   const brandId = one(params.brandId);
   const search = one(params.q);
   const offset = Number(one(params.offset)) > 0 ? Number(one(params.offset)) : 0;
+  const sort = SORTS.find((s) => s === one(params.sort)) ?? "name";
+  const dir: SortDir = one(params.dir) === "desc" ? "desc" : "asc";
 
   let data: ProductList;
   try {
-    data = await getProducts({ categoryId, brandId, search, limit: PAGE_SIZE, offset });
+    data = await getProducts({
+      categoryId,
+      brandId,
+      search,
+      limit: PAGE_SIZE,
+      offset,
+      sort,
+      dir,
+    });
   } catch (error) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>No se pudieron leer los productos</AlertTitle>
-        <AlertDescription>
-          {error instanceof Error ? error.message : "Error desconocido"}
-        </AlertDescription>
-      </Alert>
+      <PageShell crumbs={CRUMBS}>
+        <Alert variant="destructive">
+          <AlertTitle>No se pudieron leer los productos</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error ? error.message : "Error desconocido"}
+          </AlertDescription>
+        </Alert>
+      </PageShell>
     );
   }
 
-  // Filtros activos, con el link que los quita.
-  const active = [
-    categoryId ? { key: "categoryId", label: `Categoria ${categoryId}` } : null,
-    brandId
-      ? { key: "brandId", label: `Marca ${data.items[0]?.brandName ?? brandId.slice(0, 8)}` }
-      : null,
-  ].filter((f): f is { key: string; label: string } => f !== null);
+  const filters: Record<string, string> = {
+    ...(categoryId ? { categoryId } : {}),
+    ...(brandId ? { brandId } : {}),
+    ...(search ? { q: search } : {}),
+  };
 
-  const kept = Object.fromEntries(
-    [
-      categoryId ? ["categoryId", categoryId] : null,
-      brandId ? ["brandId", brandId] : null,
-      search ? ["q", search] : null,
-    ].filter((e): e is [string, string] => e !== null),
-  );
+  // Todos los productos de la pagina comparten el filtro, asi que el primero
+  // alcanza para ponerle nombre al chip sin pedirle nada mas al backend.
+  const chips = [
+    categoryId
+      ? {
+          key: "categoryId",
+          label: `Categoria: ${data.items[0]?.categoryName ?? categoryId}`,
+        }
+      : null,
+    brandId ? { key: "brandId", label: `Marca: ${data.items[0]?.brandName ?? brandId}` } : null,
+    search ? { key: "q", label: `Busqueda: ${search}` } : null,
+  ].filter((chip): chip is { key: string; label: string } => chip !== null);
+
+  const withoutFilter = (key: string) => {
+    const rest = Object.fromEntries(Object.entries(filters).filter(([k]) => k !== key));
+    return `/products?${new URLSearchParams({ ...rest, sort, dir })}`;
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Productos</h1>
-        <p className="text-muted-foreground">
-          Productos de catalogo guardados durante los scans. Filtrables por marca y categoria.
-        </p>
-      </div>
+    <PageShell crumbs={CRUMBS}>
+      <PageHeader
+        title="Productos"
+        description="Productos de catalogo guardados durante los scans. Se pueden combinar marca, categoria y texto."
+        meta={
+          <Badge variant="secondary" className="tabular-nums">
+            {count(data.total)} productos
+          </Badge>
+        }
+      />
 
-      <form className="flex flex-wrap items-end gap-2" action="/products">
-        {categoryId ? <input type="hidden" name="categoryId" value={categoryId} /> : null}
-        {brandId ? <input type="hidden" name="brandId" value={brandId} /> : null}
-        <div className="grid w-full max-w-sm gap-2">
-          <Label htmlFor="q">Buscar en el nombre</Label>
-          <Input id="q" name="q" defaultValue={search ?? ""} placeholder="galaxy, notebook…" />
-        </div>
-        <Button type="submit" variant="secondary">
-          <Search aria-hidden="true" />
-          Buscar
-        </Button>
-      </form>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SearchForm
+          action="/products"
+          hidden={{ ...(categoryId ? { categoryId } : {}), ...(brandId ? { brandId } : {}), sort, dir }}
+          defaultValue={search}
+          placeholder="Buscar en el nombre…"
+        />
 
-      {active.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {active.map((filter) => {
-            const rest = Object.fromEntries(
-              Object.entries(kept).filter(([k]) => k !== filter.key),
-            );
-            return (
-              <Badge key={filter.key} variant="secondary" asChild>
-                <Link href={`/products?${new URLSearchParams(rest)}`}>
-                  {filter.label}
+        {chips.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {chips.map((chip) => (
+              <Badge key={chip.key} variant="secondary" asChild>
+                <Link href={withoutFilter(chip.key)}>
+                  {chip.label}
                   <X className="size-3" aria-hidden="true" />
                   <span className="sr-only">Quitar filtro</span>
                 </Link>
               </Badge>
-            );
-          })}
-        </div>
-      ) : null}
+            ))}
+            {chips.length > 1 ? (
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/products">Limpiar todo</Link>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
-      <Card>
+      <Card className="overflow-hidden">
         <CardHeader>
-          <CardTitle>{data.total.toLocaleString("es-AR")} productos</CardTitle>
-          <CardDescription>Ordenados por nombre.</CardDescription>
+          <CardTitle>{chips.length > 0 ? "Resultado filtrado" : "Todos los productos"}</CardTitle>
+          <CardDescription>
+            Clickea una cabecera para reordenar toda la tabla, no solo esta pagina.
+          </CardDescription>
         </CardHeader>
+
         {data.items.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyTitle>Sin resultados</EmptyTitle>
               <EmptyDescription>
-                Corre un scan en alguna categoria para guardar sus productos de catalogo.
+                {chips.length > 0
+                  ? "Ningun producto guardado coincide con estos filtros."
+                  : "Corre un scan en alguna categoria para guardar sus productos de catalogo."}
               </EmptyDescription>
             </EmptyHeader>
+            {chips.length > 0 ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href="/products">Limpiar filtros</Link>
+              </Button>
+            ) : null}
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Marca</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Id</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.items.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell className="font-medium">
-                      <Link className="hover:underline" href={`/products/${product.id}`}>
-                        {product.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {product.brandId ? (
-                        <Link
-                          className="hover:underline"
-                          href={`/products?brandId=${product.brandId}`}
-                        >
-                          {product.brandName}
-                        </Link>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {product.categoryId ? (
-                        <Link
-                          className="hover:underline"
-                          href={`/categories/${product.categoryId}`}
-                        >
-                          {product.categoryName ?? product.categoryId}
-                        </Link>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">
-                      {product.id}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <ProductsTable items={data.items} params={filters} sort={sort} dir={dir} />
         )}
       </Card>
 
       <PaginationNav
         basePath="/products"
-        params={kept}
+        params={{ ...filters, sort, dir }}
         offset={offset}
         pageSize={PAGE_SIZE}
         total={data.total}
       />
-    </div>
+    </PageShell>
   );
 }

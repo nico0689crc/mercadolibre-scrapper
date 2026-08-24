@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
-import { Boxes } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { AppSidebar } from "@/components/layout/app-sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { getCrawler, getStats } from "@/lib/api";
+import type { CatalogStats, CrawlerStatus } from "@/types/api";
 
 import "./globals.css";
 
@@ -18,38 +19,38 @@ export const metadata: Metadata = {
   description: "Marcas por categoria del catalogo de Mercado Libre",
 };
 
-const NAV = [
-  { href: "/", label: "Resumen" },
-  { href: "/categories", label: "Categorias" },
-  { href: "/brands", label: "Marcas" },
-  { href: "/products", label: "Productos" },
-] as const;
+/**
+ * Datos de la barra lateral. Si el backend no responde el shell igual se
+ * dibuja: el error concreto lo muestra la pagina.
+ */
+async function loadShell(): Promise<{
+  stats: CatalogStats | null;
+  crawler: CrawlerStatus | null;
+}> {
+  const [stats, crawler] = await Promise.allSettled([getStats(), getCrawler()]);
+  return {
+    stats: stats.status === "fulfilled" ? stats.value : null,
+    crawler: crawler.status === "fulfilled" ? crawler.value : null,
+  };
+}
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const [{ stats, crawler }, cookieStore] = await Promise.all([loadShell(), cookies()]);
+  // La barra recuerda si quedo abierta o cerrada (la cookie la escribe shadcn).
+  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
+
   return (
     <html
       lang="es"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="bg-background text-foreground flex min-h-full flex-col">
+      <body className="bg-background text-foreground min-h-full">
         <TooltipProvider>
-          <header className="bg-background sticky top-0 z-10 border-b">
-            <div className="mx-auto flex w-full max-w-6xl items-center gap-6 px-6 py-3">
-              <Link href="/" className="flex items-center gap-2 font-semibold">
-                <Boxes className="size-5" aria-hidden="true" />
-                Scrapper Products
-              </Link>
-              <Separator orientation="vertical" className="h-6" />
-              <nav className="flex items-center gap-1">
-                {NAV.map((item) => (
-                  <Button key={item.href} asChild variant="ghost" size="sm">
-                    <Link href={item.href}>{item.label}</Link>
-                  </Button>
-                ))}
-              </nav>
-            </div>
-          </header>
-          <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>
+          <SidebarProvider defaultOpen={defaultOpen}>
+            <AppSidebar stats={stats} crawler={crawler} />
+            {/* La barra fija y el padding los pone PageShell en cada pagina. */}
+            <SidebarInset>{children}</SidebarInset>
+          </SidebarProvider>
           <Toaster />
         </TooltipProvider>
       </body>

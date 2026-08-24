@@ -111,8 +111,10 @@ Dos namespaces con responsabilidades distintas:
   - `GET  /api/catalog/categories?parent=` (sin `parent` devuelve las raices)
   - `GET  /api/catalog/categories/:id` (categoria + hijas + marcas)
   - `GET  /api/catalog/categories/:id/brands`
-  - `GET  /api/catalog/brands?limit=&offset=&search=`
-  - `GET  /api/catalog/products?categoryId=&brandId=&search=&limit=&offset=` (combinables)
+  - `GET  /api/catalog/brands?limit=&offset=&search=&sort=&dir=`
+    (`sort`: `name` | `categories` | `products`; `dir`: `asc` | `desc`)
+  - `GET  /api/catalog/products?categoryId=&brandId=&search=&limit=&offset=&sort=&dir=`
+    (filtros combinables; `sort`: `name` | `brand` | `category` | `lastSeenAt`)
   - `GET  /api/catalog/products/:id` (detalle; `?refresh=1` fuerza releer de ML)
   - `GET  /api/catalog/crawler` · `POST /api/catalog/crawler/start` · `POST .../stop`
   - `GET  /api/catalog/scans?limit=`
@@ -182,6 +184,14 @@ Tailwind y colores crudos (todo va por tokens semanticos). Leerla antes de tocar
 
 - App Router con Server Components. `src/lib/api.ts` es el unico punto de acceso al backend
   desde el servidor; usa `API_URL` y por defecto `cache: "no-store"`.
+- El shell es una `Sidebar` de shadcn en `app/layout.tsx` (la barra muestra los contadores de
+  `/catalog/stats` y el estado del crawler). Cada pagina se envuelve en `PageShell`, que dibuja
+  la barra fija con el `SidebarTrigger` y el breadcrumb: la ruta se arma en el servidor con los
+  nombres reales, por eso no vive en el layout. Adentro va `PageHeader` (boton de volver, h1,
+  badges, acciones).
+- Dos clases de tabla: `LocalTable` (cliente) para listas que ya vienen completas — filtra y
+  ordena en el navegador —, y `SortHeader` + `PaginationNav` para las listas paginadas por el
+  backend, donde el orden viaja en la query y ordena Postgres, no la pagina.
 - Tipos del contrato con el backend en `src/types/api.ts` — mantener en sync con NestJS.
 - shadcn/ui preset `radix-nova` (Radix, base color neutral, iconos lucide).
   Agregar componentes con `npx shadcn@latest add <componente>`, no escribirlos a mano.

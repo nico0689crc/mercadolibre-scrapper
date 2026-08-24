@@ -1,46 +1,27 @@
-import { Fragment } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, ImageOff } from "lucide-react";
 
+import { AttributesTable } from "@/components/catalog/attributes-table";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageShell } from "@/components/layout/page-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, getProduct } from "@/lib/api";
+import { count, dateTime, money, relative } from "@/lib/format";
 import type { ProductDetail } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
-function money(value: string | null, currency: string | null): string {
-  if (!value) return "—";
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return "—";
-  return amount.toLocaleString("es-AR", {
-    style: "currency",
-    currency: currency ?? "ARS",
-    maximumFractionDigits: 0,
-  });
-}
+const BASE_CRUMBS = [
+  { href: "/", label: "Resumen" },
+  { href: "/products", label: "Productos" },
+];
 
 async function load(
   id: string,
@@ -53,53 +34,49 @@ async function load(
   }
 }
 
+function Fact({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd className="text-sm font-medium">{value}</dd>
+    </div>
+  );
+}
+
 export default async function ProductPage({ params }: PageProps<"/products/[id]">) {
   const { id } = await params;
   const result = await load(id);
 
   if (!result.ok) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>No se pudo leer el producto</AlertTitle>
-        <AlertDescription>{result.error}</AlertDescription>
-      </Alert>
+      <PageShell crumbs={[...BASE_CRUMBS, { label: id }]}>
+        <Alert variant="destructive">
+          <AlertTitle>No se pudo leer el producto</AlertTitle>
+          <AlertDescription>{result.error}</AlertDescription>
+        </Alert>
+      </PageShell>
     );
   }
 
   const product = result.data;
-  const crumbs = [
-    { href: "/products", label: "Productos" },
-    product.category
-      ? { href: `/categories/${product.category.id}`, label: product.category.name }
-      : null,
-    product.brand ? { href: `/products?brandId=${product.brand.id}`, label: product.brand.name } : null,
-  ].filter((c): c is { href: string; label: string } => c !== null);
+  const cover = product.pictures[0]?.url ?? product.thumbnail;
+  const short = product.name.length > 60 ? `${product.name.slice(0, 60)}…` : product.name;
+  const hasDescription = product.mainFeatures.length > 0 || Boolean(product.shortDescription);
 
   return (
-    <div className="space-y-6">
-      <Breadcrumb>
-        <BreadcrumbList>
-          {crumbs.map((crumb, index) => (
-            <Fragment key={crumb.href}>
-              {index > 0 ? <BreadcrumbSeparator /> : null}
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href={crumb.href}>{crumb.label}</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-            </Fragment>
-          ))}
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{product.id}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{product.name}</h1>
-          <div className="flex flex-wrap items-center gap-2">
+    <PageShell
+      crumbs={[
+        ...BASE_CRUMBS,
+        ...(product.category
+          ? [{ href: `/categories/${product.category.id}`, label: product.category.name }]
+          : []),
+        { label: short },
+      ]}
+    >
+      <PageHeader
+        title={product.name}
+        meta={
+          <>
             <Badge variant="outline" className="font-mono text-xs">
               {product.id}
             </Badge>
@@ -111,177 +88,240 @@ export default async function ProductPage({ params }: PageProps<"/products/[id]"
             <Badge variant={product.status === "active" ? "default" : "secondary"}>
               {product.status}
             </Badge>
-          </div>
-        </div>
-        {product.permalink ? (
-          <Button asChild variant="outline" size="sm">
-            <a href={product.permalink} target="_blank" rel="noopener noreferrer">
-              <ExternalLink aria-hidden="true" />
-              Ver en Mercado Libre
-            </a>
-          </Button>
-        ) : null}
-      </div>
+            <span className="text-muted-foreground text-sm">
+              detalle de ML {relative(product.detailFetchedAt)}
+            </span>
+          </>
+        }
+        actions={
+          product.permalink ? (
+            <Button asChild variant="outline">
+              <a href={product.permalink} target="_blank" rel="noopener noreferrer">
+                <ExternalLink aria-hidden="true" />
+                Ver en Mercado Libre
+              </a>
+            </Button>
+          ) : null
+        }
+      />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Precio y publicaciones</CardTitle>
-            <CardDescription>
-              Datos de las publicaciones activas de este producto de catalogo.
-            </CardDescription>
-          </CardHeader>
+        <Card>
           <CardContent>
-            {product.listingsCount ? (
-              <dl className="grid gap-4 sm:grid-cols-4">
-                <div>
-                  <dt className="text-muted-foreground text-sm">Desde</dt>
-                  <dd className="text-lg font-semibold tabular-nums">
-                    {money(product.priceMin, product.currencyId)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground text-sm">Hasta</dt>
-                  <dd className="text-lg font-semibold tabular-nums">
-                    {money(product.priceMax, product.currencyId)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground text-sm">Publicaciones</dt>
-                  <dd className="text-lg font-semibold tabular-nums">{product.listingsCount}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground text-sm">Vendedores</dt>
-                  <dd className="text-lg font-semibold tabular-nums">{product.sellersCount}</dd>
-                </div>
-              </dl>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                Sin publicaciones activas. ML responde <code>No winners found</code> para este
-                producto.
-              </p>
-            )}
+            <div className="bg-muted relative flex aspect-square items-center justify-center overflow-hidden rounded-md">
+              {cover ? (
+                <Image
+                  src={cover}
+                  alt={product.name}
+                  fill
+                  sizes="(min-width: 1024px) 30vw, 90vw"
+                  className="object-contain"
+                  priority
+                />
+              ) : (
+                <ImageOff className="text-muted-foreground size-8" aria-hidden="true" />
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Ficha</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Marca</span>
-              <span className="font-medium">{product.brand?.name ?? "—"}</span>
-            </div>
-            <Separator />
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Categoria</span>
-              <span className="font-medium">{product.category?.name ?? "—"}</span>
-            </div>
-            <Separator />
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Variantes</span>
-              <span className="font-medium tabular-nums">{product.childrenCount}</span>
-            </div>
-            <Separator />
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Calidad</span>
-              <span className="font-medium">{product.qualityType ?? "—"}</span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-6 lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Precio y publicaciones</CardTitle>
+              <CardDescription>
+                Publicaciones activas de este producto de catalogo, segun ML.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {product.listingsCount ? (
+                <dl className="grid gap-6 sm:grid-cols-4">
+                  <Fact
+                    label="Desde"
+                    value={
+                      <span className="text-lg tabular-nums">
+                        {money(product.priceMin, product.currencyId)}
+                      </span>
+                    }
+                  />
+                  <Fact
+                    label="Hasta"
+                    value={
+                      <span className="text-lg tabular-nums">
+                        {money(product.priceMax, product.currencyId)}
+                      </span>
+                    }
+                  />
+                  <Fact
+                    label="Publicaciones"
+                    value={<span className="text-lg tabular-nums">{product.listingsCount}</span>}
+                  />
+                  <Fact
+                    label="Vendedores"
+                    value={<span className="text-lg tabular-nums">{product.sellersCount}</span>}
+                  />
+                </dl>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  Sin publicaciones activas: ML responde <code>No winners found</code> para este
+                  producto de catalogo.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Ficha</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-6 sm:grid-cols-3">
+                <Fact
+                  label="Marca"
+                  value={
+                    product.brand ? (
+                      <Link
+                        className="hover:underline"
+                        href={`/products?brandId=${product.brand.id}`}
+                      >
+                        {product.brand.name}
+                      </Link>
+                    ) : (
+                      "—"
+                    )
+                  }
+                />
+                <Fact
+                  label="Categoria"
+                  value={
+                    product.category ? (
+                      <Link
+                        className="hover:underline"
+                        href={`/categories/${product.category.id}`}
+                      >
+                        {product.category.name}
+                      </Link>
+                    ) : (
+                      "—"
+                    )
+                  }
+                />
+                <Fact
+                  label="Variantes"
+                  value={<span className="tabular-nums">{count(product.childrenCount)}</span>}
+                />
+                <Fact label="Calidad" value={product.qualityType ?? "—"} />
+                <Fact label="Creado en ML" value={dateTime(product.mlDateCreated)} />
+                <Fact label="Actualizado en ML" value={dateTime(product.mlLastUpdated)} />
+              </dl>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {product.pictures.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Fotos</CardTitle>
-            <CardDescription>{product.pictures.length} imagenes del catalogo.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
-              {product.pictures.slice(0, 12).map((picture) => (
-                <div
-                  key={picture.id}
-                  className="bg-muted relative aspect-square overflow-hidden rounded-md"
-                >
-                  <Image
-                    src={picture.url}
-                    alt={product.name}
-                    fill
-                    sizes="(min-width: 1024px) 12vw, 40vw"
-                    className="object-contain"
-                  />
+      <Tabs defaultValue="attributes">
+        <TabsList>
+          <TabsTrigger value="attributes">
+            Atributos
+            <Badge variant="secondary" className="tabular-nums">
+              {product.attributes.length}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="pictures">
+            Fotos
+            <Badge variant="secondary" className="tabular-nums">
+              {product.pictures.length}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="description">Descripcion</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="attributes">
+          <Card className="overflow-hidden">
+            <CardHeader>
+              <CardTitle>Atributos</CardTitle>
+              <CardDescription>
+                Tal como los define Mercado Libre. Filtra por nombre o por valor.
+              </CardDescription>
+            </CardHeader>
+            <AttributesTable attributes={product.attributes} />
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="pictures">
+          <Card>
+            <CardHeader>
+              <CardTitle>Fotos</CardTitle>
+              <CardDescription>Imagenes del producto de catalogo.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {product.pictures.length === 0 ? (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyTitle>Sin fotos</EmptyTitle>
+                    <EmptyDescription>El catalogo no trajo imagenes para este producto.</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
+                  {product.pictures.slice(0, 12).map((picture) => (
+                    <div
+                      key={picture.id}
+                      className="bg-muted relative aspect-square overflow-hidden rounded-md"
+                    >
+                      <Image
+                        src={picture.url}
+                        alt={product.name}
+                        fill
+                        sizes="(min-width: 1024px) 12vw, 40vw"
+                        className="object-contain"
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {product.mainFeatures.length > 0 || product.shortDescription ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Descripcion</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {product.mainFeatures.length > 0 ? (
-              <ul className="text-muted-foreground list-inside list-disc space-y-1 text-sm">
-                {product.mainFeatures.map((feature) => (
-                  <li key={feature}>{feature}</li>
-                ))}
-              </ul>
-            ) : null}
-            {product.shortDescription ? (
-              <p className="text-muted-foreground text-sm whitespace-pre-line">
-                {product.shortDescription}
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Atributos</CardTitle>
-          <CardDescription>
-            {product.attributes.length} atributos tal como los define Mercado Libre.
-          </CardDescription>
-        </CardHeader>
-        {product.attributes.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>Sin atributos guardados</EmptyTitle>
-              <EmptyDescription>
-                Corre un scan de su categoria para traerlos.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Atributo</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead>Id</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {product.attributes.map((attribute) => (
-                  <TableRow key={attribute.id}>
-                    <TableCell className="font-medium">{attribute.name}</TableCell>
-                    <TableCell>{attribute.value_name ?? "—"}</TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">
-                      {attribute.id}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </Card>
-    </div>
+        <TabsContent value="description">
+          <Card>
+            <CardHeader>
+              <CardTitle>Descripcion</CardTitle>
+              <CardDescription>
+                Caracteristicas principales y descripcion corta, tal como vienen de ML.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {hasDescription ? (
+                <>
+                  {product.mainFeatures.length > 0 ? (
+                    <ul className="text-muted-foreground list-inside list-disc space-y-1 text-sm">
+                      {product.mainFeatures.map((feature) => (
+                        <li key={feature}>{feature}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {product.shortDescription ? (
+                    <p className="text-muted-foreground text-sm whitespace-pre-line">
+                      {product.shortDescription}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyTitle>Sin descripcion</EmptyTitle>
+                    <EmptyDescription>
+                      ML no publica descripcion para este producto de catalogo.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </PageShell>
   );
 }

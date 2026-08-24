@@ -1,88 +1,98 @@
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { X } from "lucide-react";
 
+import { BrandsTable } from "@/components/catalog/brands-table";
+import { PaginationNav } from "@/components/catalog/pagination-nav";
+import { SearchForm } from "@/components/catalog/search-form";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageShell } from "@/components/layout/page-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { getBrands } from "@/lib/api";
-import type { BrandList } from "@/types/api";
+import { count } from "@/lib/format";
+import type { BrandList, BrandSort, SortDir } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
+const CRUMBS = [{ href: "/", label: "Resumen" }, { label: "Marcas" }];
+const SORTS: BrandSort[] = ["name", "categories", "products"];
 
-async function load(
-  search: string | undefined,
-  offset: number,
-): Promise<{ ok: true; data: BrandList } | { ok: false; error: string }> {
-  try {
-    return { ok: true, data: await getBrands({ limit: PAGE_SIZE, offset, search }) };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Error desconocido" };
-  }
+function one(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
 }
 
 export default async function BrandsPage({ searchParams }: PageProps<"/brands">) {
   const params = await searchParams;
-  const search = typeof params.q === "string" && params.q ? params.q : undefined;
-  const offset = Number(params.offset) > 0 ? Number(params.offset) : 0;
+  const search = one(params.q);
+  const offset = Number(one(params.offset)) > 0 ? Number(one(params.offset)) : 0;
+  const sort = SORTS.find((s) => s === one(params.sort)) ?? "products";
+  const dir: SortDir = one(params.dir) === "asc" ? "asc" : "desc";
 
-  const result = await load(search, offset);
-
-  if (!result.ok) {
+  let data: BrandList;
+  try {
+    data = await getBrands({ limit: PAGE_SIZE, offset, search, sort, dir });
+  } catch (error) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>No se pudieron leer las marcas</AlertTitle>
-        <AlertDescription>{result.error}</AlertDescription>
-      </Alert>
+      <PageShell crumbs={CRUMBS}>
+        <Alert variant="destructive">
+          <AlertTitle>No se pudieron leer las marcas</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error ? error.message : "Error desconocido"}
+          </AlertDescription>
+        </Alert>
+      </PageShell>
     );
   }
 
-  const { total, items } = result.data;
-  const hasPrev = offset > 0;
-  const hasNext = offset + PAGE_SIZE < total;
+  // Lo que conserva cada link: el orden no arrastra `offset` (vuelve a la
+  // primera pagina) y la busqueda tampoco.
+  const filters: Record<string, string> = search ? { q: search } : {};
+  const pageParams = { ...filters, sort, dir };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Marcas</h1>
-        <p className="text-muted-foreground">
-          Todas las marcas detectadas, con en cuantas categorias aparece cada una.
-        </p>
+    <PageShell crumbs={CRUMBS}>
+      <PageHeader
+        title="Marcas"
+        description="Todas las marcas detectadas en los scans, con en cuantas categorias aparece cada una."
+        meta={
+          <Badge variant="secondary" className="tabular-nums">
+            {count(data.total)} marcas
+          </Badge>
+        }
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SearchForm
+          action="/brands"
+          hidden={{ sort, dir }}
+          defaultValue={search}
+          placeholder="Buscar marca…"
+        />
+        {search ? (
+          <Badge variant="secondary" asChild>
+            <Link href="/brands">
+              Busqueda: {search}
+              <X className="size-3" aria-hidden="true" />
+              <span className="sr-only">Quitar la busqueda</span>
+            </Link>
+          </Badge>
+        ) : null}
       </div>
 
-      <form className="flex items-end gap-2" action="/brands">
-        <div className="grid w-full max-w-sm gap-2">
-          <Label htmlFor="q">Buscar marca</Label>
-          <Input id="q" name="q" defaultValue={search ?? ""} placeholder="Samsung, Motorola…" />
-        </div>
-        <Button type="submit" variant="secondary">
-          <Search aria-hidden="true" />
-          Buscar
-        </Button>
-      </form>
-
-      <Card>
+      <Card className="overflow-hidden">
         <CardHeader>
-          <CardTitle>{total.toLocaleString("es-AR")} marcas</CardTitle>
+          <CardTitle>
+            {search ? `Coinciden con “${search}”` : "Todas las marcas"}
+          </CardTitle>
           <CardDescription>
-            {search ? `Filtradas por "${search}". ` : ""}
-            Ordenadas por productos acumulados.
+            Clickea una cabecera para reordenar toda la tabla, no solo esta pagina.
           </CardDescription>
         </CardHeader>
 
-        {items.length === 0 ? (
+        {data.items.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyTitle>Sin resultados</EmptyTitle>
@@ -94,66 +104,17 @@ export default async function BrandsPage({ searchParams }: PageProps<"/brands">)
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Marca</TableHead>
-                  <TableHead>Id en ML</TableHead>
-                  <TableHead className="text-right">Categorias</TableHead>
-                  <TableHead className="text-right">Productos</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((brand) => (
-                  <TableRow key={brand.id}>
-                    <TableCell className="font-medium">
-                      <Link className="hover:underline" href={`/products?brandId=${brand.id}`}>
-                        {brand.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">
-                      {brand.mlValueId ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{brand.categories}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {brand.products.toLocaleString("es-AR")}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <BrandsTable items={data.items} params={filters} sort={sort} dir={dir} />
         )}
       </Card>
 
-      <div className="flex items-center justify-between">
-        <p className="text-muted-foreground text-sm tabular-nums">
-          {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} de {total.toLocaleString("es-AR")}
-        </p>
-        <div className="flex gap-2">
-          <Button asChild variant="outline" size="sm" disabled={!hasPrev}>
-            <a
-              href={`/brands?${new URLSearchParams({
-                ...(search ? { q: search } : {}),
-                offset: String(Math.max(0, offset - PAGE_SIZE)),
-              })}`}
-            >
-              Anterior
-            </a>
-          </Button>
-          <Button asChild variant="outline" size="sm" disabled={!hasNext}>
-            <a
-              href={`/brands?${new URLSearchParams({
-                ...(search ? { q: search } : {}),
-                offset: String(offset + PAGE_SIZE),
-              })}`}
-            >
-              Siguiente
-            </a>
-          </Button>
-        </div>
-      </div>
-    </div>
+      <PaginationNav
+        basePath="/brands"
+        params={pageParams}
+        offset={offset}
+        pageSize={PAGE_SIZE}
+        total={data.total}
+      />
+    </PageShell>
   );
 }

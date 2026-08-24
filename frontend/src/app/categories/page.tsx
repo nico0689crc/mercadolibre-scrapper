@@ -1,11 +1,16 @@
 import { CategoryTable } from "@/components/catalog/category-table";
+import { PageHeader } from "@/components/layout/page-header";
+import { PageShell } from "@/components/layout/page-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { getCategories } from "@/lib/api";
+import { count } from "@/lib/format";
 import type { Category } from "@/types/api";
 
 export const dynamic = "force-dynamic";
+
+const CRUMBS = [{ href: "/", label: "Resumen" }, { label: "Categorias" }];
 
 async function load(): Promise<
   { ok: true; categories: Category[] } | { ok: false; error: string }
@@ -22,42 +27,43 @@ export default async function CategoriesPage() {
 
   if (!data.ok) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>No se pudieron leer las categorias</AlertTitle>
-        <AlertDescription>{data.error}</AlertDescription>
-      </Alert>
+      <PageShell crumbs={CRUMBS}>
+        <Alert variant="destructive">
+          <AlertTitle>No se pudieron leer las categorias</AlertTitle>
+          <AlertDescription>{data.error}</AlertDescription>
+        </Alert>
+      </PageShell>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Categorias</h1>
-        <p className="text-muted-foreground">
-          Categorias raiz del sitio. Entra en una para ver sus hijas y sus marcas.
-        </p>
-      </div>
+  const items = data.categories.reduce((sum, category) => sum + category.totalItems, 0);
 
-      <Card>
+  return (
+    <PageShell crumbs={CRUMBS}>
+      <PageHeader
+        title="Categorias"
+        description="Las raices del arbol de Mercado Libre. Entra en una para ver sus hijas, sus marcas y sus productos."
+        meta={
+          <>
+            <Badge variant="secondary" className="tabular-nums">
+              {count(data.categories.length)} raices
+            </Badge>
+            <span className="text-muted-foreground text-sm tabular-nums">
+              {count(items)} items en ML
+            </span>
+          </>
+        }
+      />
+
+      <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>Raices</CardTitle>
           <CardDescription>
-            {data.categories.length} categorias, ordenadas por cantidad de items.
+            Filtra por nombre o id, y clickea una cabecera para reordenar.
           </CardDescription>
         </CardHeader>
-        {data.categories.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>La base esta vacia</EmptyTitle>
-              <EmptyDescription>
-                Corre <code>POST /api/catalog/sync</code> para traer el arbol desde Mercado Libre.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <CategoryTable categories={data.categories} />
-        )}
+        <CategoryTable categories={data.categories} />
       </Card>
-    </div>
+    </PageShell>
   );
 }
