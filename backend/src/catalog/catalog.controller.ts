@@ -101,7 +101,13 @@ export class CatalogController {
   /** Marcas globales, con en cuantas categorias aparece cada una. */
   @Get('brands')
   listBrands(@Query() query: ListBrandsDto) {
-    return this.brands.findAll(query.limit, query.offset, query.search);
+    return this.brands.findAll({
+      limit: query.limit,
+      offset: query.offset,
+      search: query.search,
+      sort: query.sort,
+      dir: query.dir,
+    });
   }
 
   /**
@@ -116,6 +122,8 @@ export class CatalogController {
       search: query.search,
       limit: query.limit,
       offset: query.offset,
+      sort: query.sort,
+      dir: query.dir,
     });
   }
 

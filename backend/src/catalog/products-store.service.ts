@@ -9,6 +9,7 @@ import type {
   MlProductDetail,
   MlProductItems,
 } from '../mercadolibre/categories/category.types';
+import type { ProductSort } from './dto/list-products.dto';
 
 export interface ProductQuery {
   categoryId?: string;
@@ -16,11 +17,22 @@ export interface ProductQuery {
   search?: string;
   limit: number;
   offset: number;
+  sort: ProductSort;
+  dir: 'asc' | 'desc';
 }
+
+/** Expresion por la que ordena cada columna de la tabla de productos. */
+const PRODUCT_ORDER: Record<ProductSort, string> = {
+  name: 'p.name',
+  brand: 'b.name',
+  category: 'c.name',
+  lastSeenAt: 'p.last_seen_at',
+};
 
 export interface ProductListItem {
   id: string;
   name: string;
+  thumbnail: string | null;
   domainId: string | null;
   categoryId: string | null;
   categoryName: string | null;
@@ -130,6 +142,7 @@ export class ProductsStoreService {
       .select([
         'p.id AS id',
         'p.name AS name',
+        'p.thumbnail AS thumbnail',
         'p.domain_id AS "domainId"',
         'p.category_id AS "categoryId"',
         'c.name AS "categoryName"',
@@ -137,7 +150,14 @@ export class ProductsStoreService {
         'b.name AS "brandName"',
         'p.last_seen_at AS "lastSeenAt"',
       ])
-      .orderBy('p.name', 'ASC')
+      // Las marcas y categorias nulas van siempre al final, ordene como ordene.
+      .orderBy(
+        PRODUCT_ORDER[query.sort],
+        query.dir === 'desc' ? 'DESC' : 'ASC',
+        'NULLS LAST',
+      )
+      // Desempate estable para que el paginado no repita ni saltee filas.
+      .addOrderBy('p.id', 'ASC')
       .limit(query.limit)
       .offset(query.offset);
 

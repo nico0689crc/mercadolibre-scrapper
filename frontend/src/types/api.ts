@@ -61,6 +61,7 @@ export interface BrandList {
 export interface ProductListItem {
   id: string;
   name: string;
+  thumbnail: string | null;
   domainId: string | null;
   categoryId: string | null;
   categoryName: string | null;
@@ -111,6 +112,26 @@ export interface ProductDetail {
   lastSeenAt: string;
   brand: { id: string; name: string; mlValueId: string | null } | null;
   category: { id: string; name: string } | null;
+}
+
+/** Orden de las tablas paginadas. Debe coincidir con los DTO del backend. */
+export type SortDir = "asc" | "desc";
+export type BrandSort = "name" | "categories" | "products";
+export type ProductSort = "name" | "brand" | "category" | "lastSeenAt";
+
+export interface CrawlerStatus {
+  enabled: boolean;
+  strategy: string;
+  seeds: number;
+  pages: number;
+  delaySeconds: number;
+  restaleDays: number;
+  lastCategoryId: string | null;
+  lastRunAt: string | null;
+  lastError: string | null;
+  running: boolean;
+  pending: number;
+  done: number;
 }
 
 export type ScanStatus = "running" | "ok" | "error";

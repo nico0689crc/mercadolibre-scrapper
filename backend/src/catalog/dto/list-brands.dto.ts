@@ -1,5 +1,16 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
+/** Columnas por las que la tabla de marcas se puede ordenar. */
+export const BRAND_SORT = ['name', 'categories', 'products'] as const;
+export type BrandSort = (typeof BRAND_SORT)[number];
 
 export class ListBrandsDto {
   @IsOptional()
@@ -18,4 +29,12 @@ export class ListBrandsDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  @IsOptional()
+  @IsIn(BRAND_SORT)
+  sort: BrandSort = 'products';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  dir: 'asc' | 'desc' = 'desc';
 }

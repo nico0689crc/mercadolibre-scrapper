@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -9,6 +10,15 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+
+/** Columnas por las que la tabla de productos se puede ordenar. */
+export const PRODUCT_SORT = [
+  'name',
+  'brand',
+  'category',
+  'lastSeenAt',
+] as const;
+export type ProductSort = (typeof PRODUCT_SORT)[number];
 
 export class ListProductsDto {
   /** Categoria bajo la que se encontro el producto. */
@@ -41,4 +51,12 @@ export class ListProductsDto {
   @IsInt()
   @Min(0)
   offset = 0;
+
+  @IsOptional()
+  @IsIn(PRODUCT_SORT)
+  sort: ProductSort = 'name';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  dir: 'asc' | 'desc' = 'asc';
 }

@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 
 import { Brand, CategoryBrand } from '../database/entities';
 import type { CategoryBrands } from '../mercadolibre/categories/category.types';
+import type { BrandSort } from './dto/list-brands.dto';
 
 export interface StoredBrand {
   id: string;
@@ -15,6 +16,21 @@ export interface StoredBrand {
   firstSeenAt: Date;
   lastSeenAt: Date;
 }
+
+export interface BrandQuery {
+  limit: number;
+  offset: number;
+  search?: string;
+  sort: BrandSort;
+  dir: 'asc' | 'desc';
+}
+
+/** Expresion por la que ordena cada columna de la tabla de marcas. */
+const BRAND_ORDER: Record<BrandSort, string> = {
+  name: 'b.name',
+  categories: 'categories',
+  products: 'products',
+};
 
 export interface PersistResult {
   brandsFound: number;
@@ -149,7 +165,9 @@ export class BrandsStoreService {
   }
 
   /** Marcas globales con en cuantas categorias aparece cada una. */
-  async findAll(limit: number, offset: number, search?: string) {
+  async findAll(query: BrandQuery) {
+    const direction = query.dir === 'asc' ? 'ASC' : 'DESC';
+
     const qb = this.brands
       .createQueryBuilder('b')
       .leftJoin(CategoryBrand, 'cb', 'cb.brand_id = b.id')
@@ -159,12 +177,15 @@ export class BrandsStoreService {
       .addSelect('COUNT(DISTINCT cb.category_id)', 'categories')
       .addSelect('COALESCE(SUM(cb.products_max), 0)', 'products')
       .groupBy('b.id')
-      .orderBy('products', 'DESC')
-      .limit(limit)
-      .offset(offset);
+      .orderBy(BRAND_ORDER[query.sort], direction)
+      // Desempate estable: sin esto dos marcas con el mismo total pueden
+      // cambiar de pagina entre requests.
+      .addOrderBy('b.name', 'ASC')
+      .limit(query.limit)
+      .offset(query.offset);
 
-    if (search) {
-      qb.where('b.name ILIKE :search', { search: `%${search}%` });
+    if (query.search) {
+      qb.where('b.name ILIKE :search', { search: `%${query.search}%` });
     }
 
     const [rows, total] = await Promise.all([
@@ -175,7 +196,7 @@ export class BrandsStoreService {
         categories: string;
         products: string;
       }>(),
-      this.countBrands(search),
+      this.countBrands(query.search),
     ]);
 
     return {
