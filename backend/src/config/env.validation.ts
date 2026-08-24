@@ -4,10 +4,12 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   IsUrl,
   Max,
   Min,
+  ValidateIf,
   validateSync,
 } from 'class-validator';
 
@@ -42,24 +44,38 @@ class EnvironmentVariables {
   @IsUrl({ require_tld: false })
   PUBLIC_URL: string;
 
+  /**
+   * Railway inyecta DATABASE_URL. Si esta, las variables sueltas sobran; si no,
+   * son obligatorias. Por eso van con @ValidateIf en vez de sueltas.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  DATABASE_URL?: string;
+
+  @ValidateIf((env: EnvironmentVariables) => !env.DATABASE_URL)
   @IsString()
   @IsNotEmpty()
   DATABASE_HOST: string;
 
+  @ValidateIf((env: EnvironmentVariables) => !env.DATABASE_URL)
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(65535)
   DATABASE_PORT: number = 5432;
 
+  @ValidateIf((env: EnvironmentVariables) => !env.DATABASE_URL)
   @IsString()
   @IsNotEmpty()
   DATABASE_USER: string;
 
+  @ValidateIf((env: EnvironmentVariables) => !env.DATABASE_URL)
   @IsString()
   @IsNotEmpty()
   DATABASE_PASSWORD: string;
 
+  @ValidateIf((env: EnvironmentVariables) => !env.DATABASE_URL)
   @IsString()
   @IsNotEmpty()
   DATABASE_NAME: string;

@@ -28,8 +28,9 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const port = config.get<number>('app.port', 4100);
-  // 0.0.0.0 para que el puerto sea alcanzable desde fuera del contenedor.
-  await app.listen(port, '0.0.0.0');
+  // Fuera del contenedor solo se alcanza si no escucha en loopback.
+  const bindHost = config.get<string>('app.bindHost', '0.0.0.0');
+  await app.listen(port, bindHost);
   new Logger('Bootstrap').log(
     `API en http://localhost:${port}/api | publica en ${publicUrl}/api`,
   );
