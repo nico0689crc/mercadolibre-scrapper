@@ -19,6 +19,8 @@ export interface AppConfig {
   crawlerSeeds: number;
   crawlerPages: number;
   crawlerDelaySeconds: number;
+  /** Categorias escaneadas a la vez por el crawler. */
+  crawlerConcurrency: number;
 }
 
 export const appConfig = registerAs('app', (): AppConfig => ({
@@ -34,4 +36,5 @@ export const appConfig = registerAs('app', (): AppConfig => ({
   crawlerSeeds: parseInt(process.env.CRAWLER_SEEDS ?? '6', 10),
   crawlerPages: parseInt(process.env.CRAWLER_PAGES ?? '6', 10),
   crawlerDelaySeconds: parseInt(process.env.CRAWLER_DELAY_SECONDS ?? '60', 10),
+  crawlerConcurrency: parseInt(process.env.CRAWLER_CONCURRENCY ?? '3', 10),
 }));

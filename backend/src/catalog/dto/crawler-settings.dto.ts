@@ -30,6 +30,14 @@ export class CrawlerSettingsDto {
   @Max(3600)
   delaySeconds?: number;
 
+  /** Categorias escaneadas a la vez. Por encima manda el rate limiter global. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  concurrency?: number;
+
   /** Dias tras los cuales una categoria ya escaneada vuelve a la cola. */
   @IsOptional()
   @Type(() => Number)

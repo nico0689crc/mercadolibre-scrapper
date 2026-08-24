@@ -147,12 +147,24 @@ Por eso el backend se autolimita:
   Se configura con `ML_RATE_LIMIT_PER_SECOND` (default 8) y `ML_RATE_LIMIT_BURST` (default 10).
 - `MlApiService` reintenta el 429 hasta 4 veces con backoff exponencial y jitter completo,
   respetando `Retry-After` si viene, y vacia el bucket ante cada 429.
-- `CrawlerService` (`@Interval`) llena la base de a poco: toma la categoria que hace mas
-  tiempo no se escanea (las nunca escaneadas primero, despues por antiguedad, a igualdad
-  la de mas items), la escanea, y espera `delaySeconds`. **Una categoria por vez**, nunca
-  en paralelo. Se prende y apaga por API y el estado vive en `crawler_state`.
+- `CrawlerService` (`@Interval`) llena la base de a poco: toma las categorias que hace mas
+  tiempo no se escanean (las nunca escaneadas primero, despues por antiguedad, a igualdad
+  las de mas items) y escanea `concurrency` a la vez, esperando `delaySeconds` entre tandas.
+  Se prende y apaga por API y el estado vive en `crawler_state`.
 
-Medido: 418 requests en las primeras 11 corridas, con rafagas de concurrencia 3-6, **cero 429**.
+**El ritmo tiene tres palancas**, medidas contra la API real (cada scan son seeds x pages
+requests, con seeds=6 y pages=6 son 36):
+
+| Config                          | scans/min | req/s | 429 |
+| ------------------------------- | --------- | ----- | --- |
+| conc 1, semillas 3, delay 30s   | 1.00      | 0.60  | 0   |
+| conc 3, semillas 6, delay 5s    | 5.01      | 3.01  | 0   |
+| conc 5, semillas 6, delay 5s    | 6.41      | 3.85  | 0   |
+
+De 3 a 5 el retorno ya es marginal (+28% por +67% de concurrencia) y el scan se alarga:
+ahi empieza la contencion. **Cero 429 en ~10.000 requests**; el token bucket nunca tuvo
+que frenar. Las palancas son `concurrency` y `delaySeconds` (por API, en caliente) y
+`ML_SEARCH_CONCURRENCY` (semillas en paralelo dentro de un scan, por env).
 
 ## Deploy en Railway
 

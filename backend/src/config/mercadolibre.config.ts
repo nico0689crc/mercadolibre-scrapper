@@ -11,6 +11,8 @@ export interface MercadoLibreConfig {
   rateLimitPerSecond: number;
   /** Rafaga maxima que se permite acumular. */
   rateLimitBurst: number;
+  /** Semillas de un scan que se recorren en paralelo. */
+  searchConcurrency: number;
 }
 
 export const mercadolibreConfig = registerAs(
@@ -27,5 +29,6 @@ export const mercadolibreConfig = registerAs(
       10,
     ),
     rateLimitBurst: parseInt(process.env.ML_RATE_LIMIT_BURST ?? '10', 10),
+    searchConcurrency: parseInt(process.env.ML_SEARCH_CONCURRENCY ?? '6', 10),
   }),
 );

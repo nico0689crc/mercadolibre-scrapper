@@ -21,9 +21,16 @@ export class CrawlerState {
   @Column({ type: 'integer', default: 6 })
   pages: number;
 
-  /** Pausa entre categorias. Es el freno principal del ritmo. */
+  /** Pausa entre tandas. Junto con `concurrency` marca el ritmo. */
   @Column({ name: 'delay_seconds', type: 'integer', default: 30 })
   delaySeconds: number;
+
+  /**
+   * Categorias que se escanean a la vez. Por encima de esto manda el token
+   * bucket de RateLimiterService, que es el limite duro contra ML.
+   */
+  @Column({ type: 'integer', default: 2 })
+  concurrency: number;
 
   /** Re-escanea una categoria solo si su ultimo scan es mas viejo que esto. */
   @Column({ name: 'restale_days', type: 'integer', default: 7 })

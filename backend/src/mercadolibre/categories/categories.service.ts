@@ -27,8 +27,12 @@ const TREE_CONCURRENCY = 6;
 const SEARCH_PAGE_SIZE = 50;
 /** ML corta el paginado de /products/search pasado este offset. */
 const SEARCH_MAX_OFFSET = 1000;
-/** Semillas de busqueda que corren en paralelo (cada una pagina en serie). */
-const SEARCH_CONCURRENCY = 3;
+/**
+ * Semillas de busqueda que corren en paralelo (cada una pagina en serie).
+ * Por encima de la cantidad de semillas no aporta nada. Configurable porque es
+ * la palanca principal del ritmo, junto con la pausa entre categorias.
+ */
+const DEFAULT_SEARCH_CONCURRENCY = 6;
 
 @Injectable()
 export class CategoriesService {
@@ -41,11 +45,17 @@ export class CategoriesService {
   >();
   private readonly ttlMs = 60 * 60 * 1000;
 
+  private readonly searchConcurrency: number;
+
   constructor(
     private readonly ml: MlApiService,
     config: ConfigService,
   ) {
     this.siteId = config.get<string>('mercadolibre.siteId')!;
+    this.searchConcurrency = config.get<number>(
+      'mercadolibre.searchConcurrency',
+      DEFAULT_SEARCH_CONCURRENCY,
+    );
   }
 
   getSites(): Promise<MlSite[]> {
@@ -258,7 +268,7 @@ export class CategoriesService {
 
     const perKeyword = await this.mapWithLimit(
       keywords,
-      SEARCH_CONCURRENCY,
+      this.searchConcurrency,
       (keyword) => this.scanKeyword(keyword, effectiveDomain, pages),
     );
 

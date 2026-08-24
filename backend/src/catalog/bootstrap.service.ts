@@ -65,9 +65,10 @@ export class BootstrapService implements OnApplicationBootstrap {
         seeds: this.config.get<number>('app.crawlerSeeds', 6),
         pages: this.config.get<number>('app.crawlerPages', 6),
         delaySeconds: this.config.get<number>('app.crawlerDelaySeconds', 60),
+        concurrency: this.config.get<number>('app.crawlerConcurrency', 3),
       });
       this.logger.log(
-        `Crawler activado: ${status.pending} categorias pendientes, ${status.delaySeconds}s entre cada una`,
+        `Crawler activado: ${status.pending} pendientes, ${status.concurrency} en paralelo, ${status.delaySeconds}s entre tandas`,
       );
     }
   }

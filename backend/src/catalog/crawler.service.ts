@@ -16,6 +16,9 @@ export interface CrawlerStatus {
   seeds: number;
   pages: number;
   delaySeconds: number;
+  concurrency: number;
+  /** Categorias que se estan escaneando en este momento. */
+  inFlight: string[];
   restaleDays: number;
   lastCategoryId: string | null;
   lastRunAt: Date | null;
@@ -31,6 +34,7 @@ export interface CrawlerSettings {
   pages?: number;
   delaySeconds?: number;
   restaleDays?: number;
+  concurrency?: number;
 }
 
 /**
@@ -41,7 +45,8 @@ export interface CrawlerSettings {
 @Injectable()
 export class CrawlerService implements OnModuleInit {
   private readonly logger = new Logger(CrawlerService.name);
-  private running = false;
+  /** Categorias en vuelo. Evita que dos tandas tomen la misma. */
+  private readonly inFlight = new Set<string>();
   private nextRunAt = 0;
 
   constructor(
@@ -57,21 +62,47 @@ export class CrawlerService implements OnModuleInit {
 
   @Interval(TICK_MS)
   async tick(): Promise<void> {
-    if (this.running || Date.now() < this.nextRunAt) return;
+    if (Date.now() < this.nextRunAt) return;
 
     const state = await this.getState();
     if (!state.enabled) return;
 
-    const categoryId = await this.nextCategory(state.restaleDays);
-    if (!categoryId) {
-      this.logger.log(
-        'No queda ninguna categoria por escanear: crawler en pausa',
-      );
-      await this.state.update({ id: 1 }, { enabled: false, lastError: null });
-      return;
+    let lanzadas = 0;
+
+    // Llena los slots libres. Cada scan corre por su cuenta; el ritmo real lo
+    // acota el token bucket de RateLimiterService, que es global a toda la app.
+    while (this.inFlight.size < state.concurrency) {
+      const categoryId = await this.nextCategory(state.restaleDays, [
+        ...this.inFlight,
+      ]);
+
+      if (!categoryId) {
+        if (this.inFlight.size === 0 && lanzadas === 0) {
+          this.logger.log(
+            'No queda ninguna categoria por escanear: crawler en pausa',
+          );
+          await this.state.update(
+            { id: 1 },
+            { enabled: false, lastError: null },
+          );
+        }
+        break;
+      }
+
+      this.inFlight.add(categoryId);
+      lanzadas += 1;
+      void this.scanOne(categoryId, state);
     }
 
-    this.running = true;
+    if (lanzadas > 0) {
+      this.nextRunAt = Date.now() + state.delaySeconds * 1000;
+    }
+  }
+
+  private async scanOne(
+    categoryId: string,
+    state: CrawlerState,
+  ): Promise<void> {
     try {
       const run = await this.scans.run(categoryId, {
         strategy: state.strategy as BrandStrategy,
@@ -99,8 +130,7 @@ export class CrawlerService implements OnModuleInit {
         { lastCategoryId: categoryId, lastError: message },
       );
     } finally {
-      this.running = false;
-      this.nextRunAt = Date.now() + state.delaySeconds * 1000;
+      this.inFlight.delete(categoryId);
     }
   }
 
@@ -115,6 +145,7 @@ export class CrawlerService implements OnModuleInit {
         pages: settings.pages ?? current.pages,
         delaySeconds: settings.delaySeconds ?? current.delaySeconds,
         restaleDays: settings.restaleDays ?? current.restaleDays,
+        concurrency: settings.concurrency ?? current.concurrency,
         lastError: null,
       },
     );
@@ -141,11 +172,13 @@ export class CrawlerService implements OnModuleInit {
       seeds: state.seeds,
       pages: state.pages,
       delaySeconds: state.delaySeconds,
+      concurrency: state.concurrency,
+      inFlight: [...this.inFlight],
       restaleDays: state.restaleDays,
       lastCategoryId: state.lastCategoryId,
       lastRunAt: state.lastRunAt,
       lastError: state.lastError,
-      running: this.running,
+      running: this.inFlight.size > 0,
       pending,
       done,
     };
@@ -161,7 +194,10 @@ export class CrawlerService implements OnModuleInit {
    * La proxima categoria: primero las que nunca se escanearon, despues las que
    * tienen el scan mas viejo. A igualdad, la que mas items tiene.
    */
-  private async nextCategory(restaleDays: number): Promise<string | null> {
+  private async nextCategory(
+    restaleDays: number,
+    exclude: string[],
+  ): Promise<string | null> {
     const rows = await this.dataSource.query<{ id: string }[]>(
       `
       SELECT c.id
@@ -171,11 +207,12 @@ export class CrawlerService implements OnModuleInit {
         FROM scan_runs s
         WHERE s.category_id = c.id AND s.status = 'ok'
       ) s ON true
-      WHERE s.last_ok IS NULL OR s.last_ok < now() - ($1 || ' days')::interval
+      WHERE (s.last_ok IS NULL OR s.last_ok < now() - ($1 || ' days')::interval)
+        AND NOT (c.id = ANY($2::varchar[]))
       ORDER BY s.last_ok ASC NULLS FIRST, c.total_items DESC
       LIMIT 1
       `,
-      [restaleDays],
+      [restaleDays, exclude],
     );
 
     return rows[0]?.id ?? null;
