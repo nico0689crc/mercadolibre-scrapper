@@ -17,6 +17,21 @@ import { RateLimiterService } from './rate-limiter.service';
 const MAX_RETRIES_429 = 4;
 /** Base del backoff exponencial, en ms. */
 const BACKOFF_BASE_MS = 1000;
+/** Reintentos ante un fallo de red (no de ML) antes de rendirse. */
+const MAX_RETRIES_NETWORK = 3;
+/**
+ * Fallos de transporte que se resuelven solos: DNS saturado, timeout, socket
+ * cortado. Con varias categorias en paralelo aparecen sin que ML tenga la culpa.
+ */
+const RETRYABLE_CODES = new Set([
+  'ECONNABORTED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'EPIPE',
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
+]);
 
 /** Cliente HTTP contra api.mercadolibre.com: token, rate limit y traduccion de errores. */
 @Injectable()
@@ -35,6 +50,7 @@ export class MlApiService {
 
   async get<T>(path: string): Promise<T> {
     let attempt = 0;
+    let networkAttempt = 0;
     let refreshed = false;
 
     for (;;) {
@@ -69,6 +85,21 @@ export class MlApiService {
           );
           await this.sleep(waitMs);
           attempt += 1;
+          continue;
+        }
+
+        // Fallo de transporte: no gasta cupo del rate limit, solo espaciar.
+        if (
+          !axiosError.response &&
+          RETRYABLE_CODES.has(axiosError.code ?? '') &&
+          networkAttempt < MAX_RETRIES_NETWORK
+        ) {
+          const waitMs = this.backoffMs(networkAttempt, axiosError);
+          this.logger.warn(
+            `${axiosError.code} en ${path}: reintento ${networkAttempt + 1}/${MAX_RETRIES_NETWORK} en ${waitMs}ms`,
+          );
+          await this.sleep(waitMs);
+          networkAttempt += 1;
           continue;
         }
 
