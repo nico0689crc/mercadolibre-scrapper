@@ -86,70 +86,151 @@ export class BrandsStoreService {
     }
 
     const now = new Date();
+
+    // Dos scans de la misma categoria pueden correr a la vez (varias pestañas, o
+    // el crawler solapado con un scan manual). Por eso todo lo que sigue son
+    // upserts atomicos: un check-then-insert perdia la carrera y reventaba con
+    // "duplicate key value violates unique constraint".
+    const brandIdBySlug = await this.upsertBrands(scan.brands);
     const brandIdByKey = new Map<string, string>();
-    let brandsNew = 0;
 
-    await this.dataSource.transaction(async (manager) => {
-      const brandRepo = manager.getRepository(Brand);
-      const linkRepo = manager.getRepository(CategoryBrand);
+    // Deduplicar por brand_id: dos nombres del scan pueden normalizar al mismo
+    // slug, y un ON CONFLICT no puede tocar la misma fila dos veces.
+    const links = new Map<string, { brandId: string; products: number }>();
 
-      for (const found of scan.brands) {
-        const slug = brandSlug(found.name);
-        if (!slug) continue;
+    for (const found of scan.brands) {
+      const slug = brandSlug(found.name);
+      const brandId = slug ? brandIdBySlug.get(slug) : undefined;
+      if (!brandId) continue;
 
-        // La identidad es el value_id de ML si existe; si no, el nombre normalizado.
-        let brand = found.id
-          ? await brandRepo.findOne({ where: { mlValueId: found.id } })
-          : null;
-        brand ??= await brandRepo.findOne({ where: { slug } });
-
-        if (!brand) {
-          brand = brandRepo.create({
-            mlValueId: found.id,
-            name: found.name,
-            slug,
-          });
-          brand = await brandRepo.save(brand);
-        } else if (found.id && !brand.mlValueId) {
-          // Una marca vista antes sin value_id ahora si lo tiene: enriquecerla.
-          brand.mlValueId = found.id;
-          brand = await brandRepo.save(brand);
-        }
-
-        // El scan identifica la marca por value_id si lo hay, si no por nombre.
-        brandIdByKey.set(found.id ?? found.name, brand.id);
-
-        const existing = await linkRepo.findOne({
-          where: { categoryId: scan.categoryId, brandId: brand.id },
-        });
-
-        if (existing) {
-          existing.products = found.products;
-          existing.productsMax = Math.max(existing.productsMax, found.products);
-          existing.occurrences += 1;
-          existing.lastSeenAt = now;
-          await linkRepo.save(existing);
-        } else {
-          brandsNew += 1;
-          await linkRepo.save(
-            linkRepo.create({
-              categoryId: scan.categoryId,
-              brandId: brand.id,
-              products: found.products,
-              productsMax: found.products,
-              occurrences: 1,
-              firstSeenAt: now,
-              lastSeenAt: now,
-            }),
-          );
-        }
+      brandIdByKey.set(found.id ?? found.name, brandId);
+      const prev = links.get(brandId);
+      // Si dos entradas caen en la misma marca, nos quedamos con la mayor.
+      if (!prev || found.products > prev.products) {
+        links.set(brandId, { brandId, products: found.products });
       }
-    });
+    }
+
+    const brandsNew = await this.upsertCategoryBrands(
+      scan.categoryId,
+      [...links.values()],
+      now,
+    );
 
     this.logger.log(
-      `${scan.categoryId}: ${scan.brands.length} marcas (${brandsNew} nuevas)`,
+      `${scan.categoryId}: ${links.size} marcas (${brandsNew} nuevas)`,
     );
-    return { brandsFound: scan.brands.length, brandsNew, brandIdByKey };
+    return { brandsFound: links.size, brandsNew, brandIdByKey };
+  }
+
+  /** Inserta o actualiza las marcas y devuelve el uuid de cada una, por slug. */
+  private async upsertBrands(
+    found: CategoryBrands['brands'],
+  ): Promise<Map<string, string>> {
+    // Un mismo slug puede venir varias veces en un scan ("Samsung" y "SAMSUNG").
+    // Nos quedamos con la variante que trae value_id, que es la identidad fuerte.
+    const bySlug = new Map<
+      string,
+      { slug: string; name: string; mlValueId: string | null }
+    >();
+
+    for (const brand of found) {
+      const slug = brandSlug(brand.name);
+      if (!slug) continue;
+      const prev = bySlug.get(slug);
+      if (!prev || (!prev.mlValueId && brand.id)) {
+        bySlug.set(slug, { slug, name: brand.name, mlValueId: brand.id });
+      }
+    }
+
+    const rows = [...bySlug.values()];
+    if (rows.length === 0) return new Map();
+
+    // El conflicto se resuelve por slug. `ml_value_id` NO se toca aca: tiene su
+    // propio indice unico parcial y pisarlo desde el EXCLUDED podria violarlo.
+    const values = rows
+      .map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`)
+      .join(', ');
+    const params = rows.flatMap((r) => [r.name, r.slug]);
+
+    const upserted = await this.dataSource.query<
+      { id: string; slug: string }[]
+    >(
+      `INSERT INTO brands (name, slug) VALUES ${values}
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+       RETURNING id, slug`,
+      params,
+    );
+
+    const idBySlug = new Map(upserted.map((r) => [r.slug, r.id]));
+    await this.enrichMlValueIds(rows);
+    return idBySlug;
+  }
+
+  /**
+   * Completa el value_id de ML en marcas que se habian visto sin el.
+   * Best-effort y fuera de toda transaccion: si otra corrida ya reclamo ese
+   * value_id, la marca simplemente se queda sin el hasta la proxima.
+   */
+  private async enrichMlValueIds(
+    rows: { slug: string; mlValueId: string | null }[],
+  ): Promise<void> {
+    for (const row of rows) {
+      if (!row.mlValueId) continue;
+      try {
+        await this.dataSource.query(
+          `UPDATE brands SET ml_value_id = $1, updated_at = now()
+           WHERE slug = $2 AND ml_value_id IS NULL
+             AND NOT EXISTS (SELECT 1 FROM brands WHERE ml_value_id = $1)`,
+          [row.mlValueId, row.slug],
+        );
+      } catch {
+        // Carrera con otra corrida por el mismo value_id: no es fatal.
+      }
+    }
+  }
+
+  /**
+   * Acumula la relacion marca-categoria. `products` refleja la ultima corrida,
+   * `products_max` se queda con el maximo historico (asi un scan chico no borra
+   * cobertura de uno grande) y `occurrences` cuenta cuantos scans la vieron.
+   * Devuelve cuantas filas eran nuevas (xmax = 0 marca un INSERT real).
+   */
+  private async upsertCategoryBrands(
+    categoryId: string,
+    links: { brandId: string; products: number }[],
+    now: Date,
+  ): Promise<number> {
+    if (links.length === 0) return 0;
+
+    // Los casts van en el VALUES: Postgres no puede inferir el tipo de un
+    // parametro suelto dentro de una tabla derivada.
+    const values = links
+      .map(
+        (_, i) => `($${i * 2 + 2}::uuid, $${i * 2 + 3}::int, $1::timestamptz)`,
+      )
+      .join(', ');
+    const params: unknown[] = [
+      now,
+      ...links.flatMap((l) => [l.brandId, l.products]),
+    ];
+
+    const rows = await this.dataSource.query<{ inserted: boolean }[]>(
+      `INSERT INTO category_brands
+         (brand_id, products, first_seen_at, last_seen_at, category_id, products_max, occurrences)
+       SELECT v.brand_id, v.products, v.seen, v.seen, $${params.length + 1}, v.products, 1
+       FROM (VALUES ${values}) AS v(brand_id, products, seen)
+       ON CONFLICT (category_id, brand_id) DO UPDATE SET
+         products = EXCLUDED.products,
+         products_max = GREATEST(category_brands.products_max, EXCLUDED.products),
+         occurrences = category_brands.occurrences + 1,
+         last_seen_at = EXCLUDED.last_seen_at,
+         updated_at = now()
+       RETURNING (xmax = 0) AS inserted`,
+      [...params, categoryId],
+    );
+
+    return rows.filter((r) => r.inserted).length;
   }
 
   /** Marcas acumuladas de una categoria, de mayor a menor cobertura. */
