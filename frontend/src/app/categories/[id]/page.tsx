@@ -88,7 +88,7 @@ export default async function CategoryPage({ params }: PageProps<"/categories/[i
         actions={
           <>
             <Button asChild variant="outline">
-              <Link href={`/products?categoryId=${category.id}`}>
+              <Link href={`/products?branch=${category.id}`}>
                 <Package aria-hidden="true" />
                 Ver productos
               </Link>

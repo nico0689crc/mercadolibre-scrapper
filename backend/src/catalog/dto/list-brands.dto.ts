@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -29,6 +30,28 @@ export class ListBrandsDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  /** Marcas presentes en esta categoria o en cualquiera de sus descendientes. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z]{3}\d+$/, {
+    message: 'branch debe ser un id de categoria, ej. MLA1648',
+  })
+  branch?: string;
+
+  /** Piso de productos acumulados (suma de products_max por categoria). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  minProducts?: number;
+
+  /** Piso de categorias distintas en las que aparece la marca. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  minCategories?: number;
 
   @IsOptional()
   @IsIn(BRAND_SORT)

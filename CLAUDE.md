@@ -76,6 +76,9 @@ Esquema (`backend/src/database/entities/`):
   Salen del mismo barrido que las marcas, asi que persistirlos no cuesta requests extra.
   `domain_id` es canonico; `category_id` es "bajo que categoria lo encontramos", que en
   scans de raices (sin filtro de dominio) puede no ser la categoria canonica de ML.
+  Ademas el upsert lo pisa: si otro scan vuelve a ver el producto, queda con la ultima
+  categoria. Por eso filtrar productos por una raiz con `categoryId` devuelve casi nada y
+  la UI usa `branch`, que resuelve la rama con el `path` guardado (`path @> [{"id": ...}]`).
   El detalle viene en dos niveles:
   - **Gratis** (ya lo devuelve `/products/search`): `attributes` (~85 por producto),
     `pictures`, `short_description`, `tags`, `quality_type`, `parent_id`, fechas de ML.
@@ -108,13 +111,23 @@ Dos namespaces con responsabilidades distintas:
 - `/api/categories/*` — **proxy en vivo a ML**, no toca la base. Sirve para explorar y depurar.
 - `/api/catalog/*` — **todo sale de la base**:
   - `GET  /api/catalog/stats`
-  - `GET  /api/catalog/categories?parent=` (sin `parent` devuelve las raices)
+  - `GET  /api/catalog/categories` — devuelve `{total, items}`, con `brandsCount` y
+    `productsCount` por fila. Filtros: `parent` (hijas directas), `branch` (una categoria
+    y toda su descendencia), `scope=roots|all`, `search` (nombre o id), `depth`,
+    `leaf|domain|brands` (tri-estado `any|yes|no`), `minItems`, `sort`
+    (`name|items|depth|brands|products`), `dir`, `limit`, `offset`.
+  - `GET  /api/catalog/categories/tree` — el arbol entero liviano
+    (`id, name, parentId, depth, isLeaf`, ~50 kB). Alimenta la cascada de filtros del
+    frontend. **La ruta va declarada antes que `categories/:id`**, si no `tree` entra como id.
   - `GET  /api/catalog/categories/:id` (categoria + hijas + marcas)
   - `GET  /api/catalog/categories/:id/brands`
-  - `GET  /api/catalog/brands?limit=&offset=&search=&sort=&dir=`
+  - `GET  /api/catalog/brands?limit=&offset=&search=&branch=&minProducts=&minCategories=&sort=&dir=`
     (`sort`: `name` | `categories` | `products`; `dir`: `asc` | `desc`)
-  - `GET  /api/catalog/products?categoryId=&brandId=&search=&limit=&offset=&sort=&dir=`
-    (filtros combinables; `sort`: `name` | `brand` | `category` | `lastSeenAt`)
+  - `GET  /api/catalog/products?categoryId=&branch=&brandId=&search=&domainId=&status=&brand=&photo=&limit=&offset=&sort=&dir=`
+    (filtros combinables; `status`: `active|inactive`; `brand=none` son los que quedaron
+    sin marca; `photo` es tri-estado; `sort`: `name|brand|category|lastSeenAt`)
+  - `GET  /api/catalog/domains?categoryId=&branch=` — dominios presentes con su conteo,
+    para el select del filtro (top 100)
   - `GET  /api/catalog/products/:id` (detalle; `?refresh=1` fuerza releer de ML)
   - `GET  /api/catalog/crawler` · `POST /api/catalog/crawler/start` · `POST .../stop`
   - `GET  /api/catalog/scans?limit=`
@@ -196,6 +209,21 @@ Tailwind y colores crudos (todo va por tokens semanticos). Leerla antes de tocar
 - Dos clases de tabla: `LocalTable` (cliente) para listas que ya vienen completas — filtra y
   ordena en el navegador —, y `SortHeader` + `PaginationNav` para las listas paginadas por el
   backend, donde el orden viaja en la query y ordena Postgres, no la pagina.
+- `FilterBar` es la barra de filtros de los tres listados. Es un form con **server action**
+  (`applyFiltersAction`): la action arma la url limpia y redirige, en vez de un form GET que
+  mandaria los campos vacios y arrastraria el `offset`. Todo el estado del filtro vive en la
+  query, asi que la vista es compartible y el back del navegador funciona.
+- Los selects son el `Select` de shadcn (popover de Radix), que **no manda valor al form**:
+  `FilterSelect` le agrega un input hidden. El valor vacio es siempre `"any"` — Radix prohibe
+  un item con `value=""` y la action descarta `any` al armar la url.
+- `CategoryCascade` es el filtro de categoria: un select por nivel, cada uno con las hijas de
+  lo elegido arriba. Al backend viaja un solo `branch` (la categoria mas profunda elegida) y
+  el `path` resuelve la rama entera. El arbol llega completo de `/categories/tree` y se filtra
+  en memoria: cambiar de nivel no cuesta un request.
+- Los componentes de filtro sincronizan su estado con la prop del servidor comparando el
+  valor anterior **durante el render** (no en un `useEffect`, que dispara la regla
+  `react-hooks/set-state-in-effect`): navegar entre urls de la misma ruta reusa la instancia
+  y si no el select se queda mostrando el filtro anterior.
 - Tipos del contrato con el backend en `src/types/api.ts` — mantener en sync con NestJS.
 - shadcn/ui preset `radix-nova` (Radix, base color neutral, iconos lucide).
   Agregar componentes con `npx shadcn@latest add <componente>`, no escribirlos a mano.

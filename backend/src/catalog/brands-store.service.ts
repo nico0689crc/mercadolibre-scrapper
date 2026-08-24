@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
 
 import { Brand, CategoryBrand } from '../database/entities';
 import type { CategoryBrands } from '../mercadolibre/categories/category.types';
@@ -21,6 +21,10 @@ export interface BrandQuery {
   limit: number;
   offset: number;
   search?: string;
+  /** Marcas presentes en esta categoria o en su descendencia. */
+  branch?: string;
+  minProducts?: number;
+  minCategories?: number;
   sort: BrandSort;
   dir: 'asc' | 'desc';
 }
@@ -31,6 +35,10 @@ const BRAND_ORDER: Record<BrandSort, string> = {
   categories: 'categories',
   products: 'products',
 };
+
+/** Postgres no acepta el alias del SELECT en el HAVING: hay que repetirlo. */
+const PRODUCTS_SUM = 'COALESCE(SUM(cb.products_max), 0)';
+const CATEGORIES_COUNT = 'COUNT(DISTINCT cb.category_id)';
 
 export interface PersistResult {
   brandsFound: number;
@@ -166,37 +174,38 @@ export class BrandsStoreService {
 
   /** Marcas globales con en cuantas categorias aparece cada una. */
   async findAll(query: BrandQuery) {
-    const direction = query.dir === 'asc' ? 'ASC' : 'DESC';
-
-    const qb = this.brands
+    const base = this.brands
       .createQueryBuilder('b')
       .leftJoin(CategoryBrand, 'cb', 'cb.brand_id = b.id')
       .select('b.id', 'id')
       .addSelect('b.ml_value_id', 'mlValueId')
       .addSelect('b.name', 'name')
-      .addSelect('COUNT(DISTINCT cb.category_id)', 'categories')
-      .addSelect('COALESCE(SUM(cb.products_max), 0)', 'products')
-      .groupBy('b.id')
-      .orderBy(BRAND_ORDER[query.sort], direction)
+      .addSelect(CATEGORIES_COUNT, 'categories')
+      .addSelect(PRODUCTS_SUM, 'products')
+      .groupBy('b.id');
+
+    this.applyFilters(base, query);
+
+    const page = base
+      .clone()
+      .orderBy(BRAND_ORDER[query.sort], query.dir === 'asc' ? 'ASC' : 'DESC')
       // Desempate estable: sin esto dos marcas con el mismo total pueden
       // cambiar de pagina entre requests.
       .addOrderBy('b.name', 'ASC')
       .limit(query.limit)
       .offset(query.offset);
 
-    if (query.search) {
-      qb.where('b.name ILIKE :search', { search: `%${query.search}%` });
-    }
-
     const [rows, total] = await Promise.all([
-      qb.getRawMany<{
+      page.getRawMany<{
         id: string;
         mlValueId: string | null;
         name: string;
         categories: string;
         products: string;
       }>(),
-      this.countBrands(query.search),
+      // Con GROUP BY + HAVING el total son las filas agrupadas, no las marcas:
+      // hay que contar sobre la consulta ya agrupada.
+      this.countGrouped(base),
     ]);
 
     return {
@@ -209,6 +218,44 @@ export class BrandsStoreService {
         products: Number(r.products),
       })),
     };
+  }
+
+  private applyFilters(qb: SelectQueryBuilder<Brand>, query: BrandQuery): void {
+    if (query.search) {
+      qb.andWhere('b.name ILIKE :search', { search: `%${query.search}%` });
+    }
+    if (query.branch) {
+      qb.andWhere(
+        `EXISTS (
+           SELECT 1 FROM category_brands link
+           JOIN categories cat ON cat.id = link.category_id
+           WHERE link.brand_id = b.id AND cat.path @> :branch::jsonb
+         )`,
+        { branch: JSON.stringify([{ id: query.branch }]) },
+      );
+    }
+    if (query.minProducts !== undefined) {
+      qb.andHaving(`${PRODUCTS_SUM} >= :minProducts`, {
+        minProducts: query.minProducts,
+      });
+    }
+    if (query.minCategories !== undefined) {
+      qb.andHaving(`${CATEGORIES_COUNT} >= :minCategories`, {
+        minCategories: query.minCategories,
+      });
+    }
+  }
+
+  /** Cuenta las filas que devuelve una consulta ya agrupada. */
+  private async countGrouped(base: SelectQueryBuilder<Brand>): Promise<number> {
+    const row = await this.dataSource
+      .createQueryBuilder()
+      .select('COUNT(*)', 'total')
+      .from(`(${base.getQuery()})`, 'grouped')
+      .setParameters(base.getParameters())
+      .getRawOne<{ total: string }>();
+
+    return Number(row?.total ?? 0);
   }
 
   countBrands(search?: string): Promise<number> {

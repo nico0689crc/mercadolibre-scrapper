@@ -29,7 +29,7 @@ export function CategoryBrandsTable({
         <div className="flex flex-col">
           <Link
             className="font-medium hover:underline"
-            href={`/products?brandId=${brand.id}&categoryId=${categoryId}`}
+            href={`/products?brandId=${brand.id}&branch=${categoryId}`}
           >
             {brand.name}
           </Link>

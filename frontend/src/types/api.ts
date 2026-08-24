@@ -28,6 +28,26 @@ export interface Category {
   syncedAt: string | null;
 }
 
+/** Fila del listado de categorias: la categoria y lo que ya juntamos de ella. */
+export interface CategoryListItem extends Category {
+  brandsCount: number;
+  productsCount: number;
+}
+
+export interface CategoryList {
+  total: number;
+  items: CategoryListItem[];
+}
+
+/** Nodo minimo del arbol, para la cascada de filtros. */
+export interface CategoryNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  depth: number;
+  isLeaf: boolean;
+}
+
 export interface StoredBrand {
   id: string;
   mlValueId: string | null;
@@ -118,6 +138,16 @@ export interface ProductDetail {
 export type SortDir = "asc" | "desc";
 export type BrandSort = "name" | "categories" | "products";
 export type ProductSort = "name" | "brand" | "category" | "lastSeenAt";
+export type CategorySort = "name" | "items" | "depth" | "brands" | "products";
+
+/** Filtros de tres estados, tal como viajan en la query. */
+export type Tristate = "any" | "yes" | "no";
+export type ProductStatus = "active" | "inactive";
+
+export interface DomainOption {
+  domainId: string;
+  products: number;
+}
 
 export interface CrawlerStatus {
   enabled: boolean;

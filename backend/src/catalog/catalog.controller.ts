@@ -4,16 +4,20 @@ import type { Category, Product, ScanRun } from '../database/entities';
 import { BrandsStoreService, type StoredBrand } from './brands-store.service';
 import {
   CategoriesStoreService,
+  type CategoryList,
+  type CategoryNode,
   type SyncResult,
 } from './categories-store.service';
 import { CrawlerService, type CrawlerStatus } from './crawler.service';
 import { CrawlerSettingsDto } from './dto/crawler-settings.dto';
 import { ListBrandsDto } from './dto/list-brands.dto';
+import { ListCategoriesDto } from './dto/list-categories.dto';
 import { ListProductsDto } from './dto/list-products.dto';
 import { ScanCategoryDto } from './dto/scan-category.dto';
 import { SyncCategoriesDto } from './dto/sync-categories.dto';
 import {
   ProductsStoreService,
+  type DomainOption,
   type ProductList,
 } from './products-store.service';
 import { ScanService } from './scan.service';
@@ -76,10 +80,22 @@ export class CatalogController {
     return { categories, brands, categoryBrandLinks, products, scans };
   }
 
-  /** Categorias persistidas. Sin `parent` devuelve las raices. */
+  /**
+   * Categorias persistidas, filtrables. Sin nada devuelve las raices; `parent`
+   * trae las hijas directas, `branch` una rama entera y `scope=all` el arbol.
+   */
   @Get('categories')
-  getCategories(@Query('parent') parent?: string): Promise<Category[]> {
-    return this.categories.findChildren(parent);
+  getCategories(@Query() query: ListCategoriesDto): Promise<CategoryList> {
+    return this.categories.find(query);
+  }
+
+  /**
+   * Arbol completo y liviano para la cascada de filtros.
+   * Va antes de `categories/:id`, si no `tree` entra como id.
+   */
+  @Get('categories/tree')
+  getCategoryTree(): Promise<CategoryNode[]> {
+    return this.categories.tree();
   }
 
   @Get('categories/:id')
@@ -105,9 +121,21 @@ export class CatalogController {
       limit: query.limit,
       offset: query.offset,
       search: query.search,
+      branch: query.branch,
+      minProducts: query.minProducts,
+      minCategories: query.minCategories,
       sort: query.sort,
       dir: query.dir,
     });
+  }
+
+  /** Dominios de catalogo presentes, para el select del filtro de productos. */
+  @Get('domains')
+  getDomains(
+    @Query('categoryId') categoryId?: string,
+    @Query('branch') branch?: string,
+  ): Promise<DomainOption[]> {
+    return this.products.domains(categoryId, branch);
   }
 
   /**
@@ -118,8 +146,13 @@ export class CatalogController {
   listProducts(@Query() query: ListProductsDto): Promise<ProductList> {
     return this.products.find({
       categoryId: query.categoryId,
+      branch: query.branch,
       brandId: query.brandId,
       search: query.search,
+      domainId: query.domainId,
+      status: query.status,
+      brand: query.brand,
+      photo: query.photo,
       limit: query.limit,
       offset: query.offset,
       sort: query.sort,

@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, type SelectQueryBuilder } from 'typeorm';
 
 import { Product } from '../database/entities';
 import { MlApiService } from '../mercadolibre/ml-api.service';
@@ -13,8 +13,14 @@ import type { ProductSort } from './dto/list-products.dto';
 
 export interface ProductQuery {
   categoryId?: string;
+  branch?: string;
   brandId?: string;
   search?: string;
+  domainId?: string;
+  status?: string;
+  /** `none` = solo los productos que quedaron sin marca resuelta. */
+  brand?: 'any' | 'none';
+  photo?: 'any' | 'yes' | 'no';
   limit: number;
   offset: number;
   sort: ProductSort;
@@ -44,6 +50,11 @@ export interface ProductListItem {
 export interface ProductList {
   total: number;
   items: ProductListItem[];
+}
+
+export interface DomainOption {
+  domainId: string;
+  products: number;
 }
 
 /** Cuanto vale el detalle cacheado antes de volver a pedirlo a ML. */
@@ -163,22 +174,8 @@ export class ProductsStoreService {
 
     const count = this.repo.createQueryBuilder('p');
 
-    if (query.categoryId) {
-      qb.andWhere('p.category_id = :categoryId', {
-        categoryId: query.categoryId,
-      });
-      count.andWhere('p.category_id = :categoryId', {
-        categoryId: query.categoryId,
-      });
-    }
-    if (query.brandId) {
-      qb.andWhere('p.brand_id = :brandId', { brandId: query.brandId });
-      count.andWhere('p.brand_id = :brandId', { brandId: query.brandId });
-    }
-    if (query.search) {
-      qb.andWhere('p.name ILIKE :search', { search: `%${query.search}%` });
-      count.andWhere('p.name ILIKE :search', { search: `%${query.search}%` });
-    }
+    this.applyFilters(qb, query);
+    this.applyFilters(count, query);
 
     const [items, total] = await Promise.all([
       qb.getRawMany<ProductListItem>(),
@@ -186,6 +183,77 @@ export class ProductsStoreService {
     ]);
 
     return { total, items };
+  }
+
+  private applyFilters(
+    qb: SelectQueryBuilder<Product>,
+    query: ProductQuery,
+  ): void {
+    if (query.categoryId) {
+      qb.andWhere('p.category_id = :categoryId', {
+        categoryId: query.categoryId,
+      });
+    } else if (query.branch) {
+      qb.andWhere(
+        `p.category_id IN (
+           SELECT cat.id FROM categories cat WHERE cat.path @> :branch::jsonb
+         )`,
+        { branch: JSON.stringify([{ id: query.branch }]) },
+      );
+    }
+    if (query.brandId) {
+      qb.andWhere('p.brand_id = :brandId', { brandId: query.brandId });
+    } else if (query.brand === 'none') {
+      // Solo tiene sentido cuando no se pidio una marca puntual.
+      qb.andWhere('p.brand_id IS NULL');
+    }
+    if (query.search) {
+      qb.andWhere('p.name ILIKE :search', { search: `%${query.search}%` });
+    }
+    if (query.domainId) {
+      qb.andWhere('p.domain_id = :domainId', { domainId: query.domainId });
+    }
+    if (query.status) {
+      qb.andWhere('p.status = :status', { status: query.status });
+    }
+    if (query.photo === 'yes') {
+      qb.andWhere('p.thumbnail IS NOT NULL');
+    } else if (query.photo === 'no') {
+      qb.andWhere('p.thumbnail IS NULL');
+    }
+  }
+
+  /**
+   * Dominios de catalogo presentes, con cuantos productos tiene cada uno.
+   * Alimenta el select del filtro: acotado por categoria son unos pocos, y
+   * sin categoria hay miles, asi que devuelve los mas grandes.
+   */
+  async domains(categoryId?: string, branch?: string): Promise<DomainOption[]> {
+    const qb = this.repo
+      .createQueryBuilder('p')
+      .select('p.domain_id', 'domainId')
+      .addSelect('COUNT(*)', 'products')
+      .where('p.domain_id IS NOT NULL')
+      .groupBy('p.domain_id')
+      .orderBy('COUNT(*)', 'DESC')
+      .limit(100);
+
+    if (categoryId) {
+      qb.andWhere('p.category_id = :categoryId', { categoryId });
+    } else if (branch) {
+      qb.andWhere(
+        `p.category_id IN (
+           SELECT cat.id FROM categories cat WHERE cat.path @> :branch::jsonb
+         )`,
+        { branch: JSON.stringify([{ id: branch }]) },
+      );
+    }
+
+    const rows = await qb.getRawMany<{ domainId: string; products: string }>();
+    return rows.map((r) => ({
+      domainId: r.domainId,
+      products: Number(r.products),
+    }));
   }
 
   /**

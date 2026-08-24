@@ -1,14 +1,56 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Repository, type SelectQueryBuilder } from 'typeorm';
 
 import { Category } from '../database/entities';
 import { CategoriesService } from '../mercadolibre/categories/categories.service';
 import type { MlCategorySummary } from '../mercadolibre/categories/category.types';
+import type {
+  CategorySort,
+  ListCategoriesDto,
+} from './dto/list-categories.dto';
 
 /** Detalles de categoria resueltos en paralelo contra ML. */
 const DETAIL_CONCURRENCY = 6;
+
+/** Categoria con lo que ya juntamos de ella, para la tabla del listado. */
+export interface CategoryListItem extends Category {
+  /** `brands` y `products` ya son relaciones en la entidad: van con sufijo. */
+  brandsCount: number;
+  productsCount: number;
+}
+
+export interface CategoryList {
+  total: number;
+  items: CategoryListItem[];
+}
+
+/** Nodo minimo del arbol: lo que necesita la cascada de selects del frontend. */
+export interface CategoryNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  depth: number;
+  isLeaf: boolean;
+}
+
+/** Expresion por la que ordena cada columna de la tabla de categorias. */
+const CATEGORY_ORDER: Record<CategorySort, string> = {
+  name: 'c.name',
+  items: 'c.total_items',
+  depth: 'c.depth',
+  brands: 'brands_count',
+  products: 'products_count',
+};
+
+const BRANDS_OF_CATEGORY =
+  'SELECT COUNT(*) FROM category_brands cb WHERE cb.category_id = c.id';
+const PRODUCTS_OF_CATEGORY =
+  'SELECT COUNT(*) FROM products p WHERE p.category_id = c.id';
+// Ojo: con COUNT(*) el EXISTS da siempre true (la agregacion devuelve una fila).
+const HAS_BRANDS =
+  'EXISTS (SELECT 1 FROM category_brands cb WHERE cb.category_id = c.id)';
 
 export interface SyncResult {
   siteId: string;
@@ -129,6 +171,104 @@ export class CategoriesStoreService {
     });
 
     return rows.length;
+  }
+
+  /**
+   * Listado filtrable del arbol. Cada fila trae ademas cuantas marcas y cuantos
+   * productos le conocemos, que es lo que dice si vale la pena escanearla.
+   */
+  async find(query: ListCategoriesDto): Promise<CategoryList> {
+    const rows = this.repo
+      .createQueryBuilder('c')
+      .addSelect(`(${BRANDS_OF_CATEGORY})`, 'brands_count')
+      .addSelect(`(${PRODUCTS_OF_CATEGORY})`, 'products_count')
+      .orderBy(CATEGORY_ORDER[query.sort], query.dir === 'asc' ? 'ASC' : 'DESC')
+      // Desempate estable para que el paginado no repita filas.
+      .addOrderBy('c.name', 'ASC')
+      .limit(query.limit)
+      .offset(query.offset);
+
+    const count = this.repo.createQueryBuilder('c');
+
+    this.applyFilters(rows, query);
+    this.applyFilters(count, query);
+
+    const [result, total] = await Promise.all([
+      rows.getRawAndEntities<{
+        brands_count: string;
+        products_count: string;
+      }>(),
+      count.getCount(),
+    ]);
+
+    return {
+      total,
+      items: result.entities.map((category, index) => ({
+        ...category,
+        brandsCount: Number(result.raw[index]?.brands_count ?? 0),
+        productsCount: Number(result.raw[index]?.products_count ?? 0),
+      })),
+    };
+  }
+
+  private applyFilters(
+    qb: SelectQueryBuilder<Category>,
+    query: ListCategoriesDto,
+  ): void {
+    if (query.parent) {
+      qb.andWhere('c.parent_id = :parent', { parent: query.parent });
+    } else if (query.branch) {
+      // `path` es el path_from_root de ML y se incluye a si misma, asi que
+      // esto matchea la categoria y toda su descendencia.
+      qb.andWhere('c.path @> :branch::jsonb', {
+        branch: JSON.stringify([{ id: query.branch }]),
+      });
+    } else if (query.scope === 'roots') {
+      qb.andWhere('c.parent_id IS NULL');
+    }
+
+    if (query.search) {
+      qb.andWhere('(c.name ILIKE :search OR c.id ILIKE :search)', {
+        search: `%${query.search}%`,
+      });
+    }
+    if (query.depth !== undefined) {
+      qb.andWhere('c.depth = :depth', { depth: query.depth });
+    }
+    if (query.leaf !== 'any') {
+      qb.andWhere('c.is_leaf = :leaf', { leaf: query.leaf === 'yes' });
+    }
+    if (query.domain !== 'any') {
+      qb.andWhere(
+        query.domain === 'yes'
+          ? 'c.catalog_domain IS NOT NULL'
+          : 'c.catalog_domain IS NULL',
+      );
+    }
+    if (query.brands !== 'any') {
+      qb.andWhere(query.brands === 'yes' ? HAS_BRANDS : `NOT ${HAS_BRANDS}`);
+    }
+    if (query.minItems !== undefined) {
+      qb.andWhere('c.total_items >= :minItems', { minItems: query.minItems });
+    }
+  }
+
+  /**
+   * El arbol entero, sin contadores ni path: son ~500 filas de pocos bytes que
+   * el frontend usa para armar la cascada categoria -> subcategoria sin volver
+   * a pedir nada en cada paso.
+   */
+  async tree(): Promise<CategoryNode[]> {
+    return this.repo
+      .createQueryBuilder('c')
+      .select('c.id', 'id')
+      .addSelect('c.name', 'name')
+      .addSelect('c.parent_id', 'parentId')
+      .addSelect('c.depth', 'depth')
+      .addSelect('c.is_leaf', 'isLeaf')
+      .orderBy('c.depth', 'ASC')
+      .addOrderBy('c.name', 'ASC')
+      .getRawMany<CategoryNode>();
   }
 
   /** Categorias de un nivel. Sin `parentId` devuelve las raices. */

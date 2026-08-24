@@ -2,16 +2,31 @@ import type {
   BrandList,
   BrandSort,
   CatalogStats,
-  Category,
+  CategoryList,
+  CategoryNode,
+  CategorySort,
   CategoryWithBrands,
   CrawlerStatus,
+  DomainOption,
   HealthStatus,
   ProductDetail,
   ProductList,
   ProductSort,
+  ProductStatus,
   ScanRun,
   SortDir,
+  Tristate,
 } from "@/types/api";
+
+/** Arma el query string salteando lo vacio y los tri-estado en "any". */
+function query(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "" || value === "any") continue;
+    search.set(key, String(value));
+  }
+  return search.size > 0 ? `?${search.toString()}` : "";
+}
 
 const SERVER_API_URL = process.env.API_URL ?? "http://localhost:4100/api";
 
@@ -59,9 +74,38 @@ export function getStats(): Promise<CatalogStats> {
   return apiFetch<CatalogStats>("/catalog/stats");
 }
 
-export function getCategories(parent?: string): Promise<Category[]> {
-  const query = parent ? `?parent=${encodeURIComponent(parent)}` : "";
-  return apiFetch<Category[]>(`/catalog/categories${query}`);
+export interface CategoryFilters {
+  parent?: string;
+  /** Una categoria y toda su descendencia. */
+  branch?: string;
+  scope?: "roots" | "all";
+  search?: string;
+  depth?: number;
+  leaf?: Tristate;
+  domain?: Tristate;
+  brands?: Tristate;
+  minItems?: number;
+  sort?: CategorySort;
+  dir?: SortDir;
+  limit?: number;
+  offset?: number;
+}
+
+export function getCategories(filters: CategoryFilters = {}): Promise<CategoryList> {
+  return apiFetch<CategoryList>(`/catalog/categories${query({ ...filters })}`);
+}
+
+/** Arbol completo y liviano (~50 kB): lo consume la cascada de filtros. */
+export function getCategoryTree(): Promise<CategoryNode[]> {
+  return apiFetch<CategoryNode[]>("/catalog/categories/tree");
+}
+
+/** Dominios de catalogo presentes, para el select del filtro de productos. */
+export function getDomains(params: {
+  categoryId?: string;
+  branch?: string;
+}): Promise<DomainOption[]> {
+  return apiFetch<DomainOption[]>(`/catalog/domains${query({ ...params })}`);
 }
 
 export function getCategory(id: string): Promise<CategoryWithBrands> {
@@ -72,38 +116,30 @@ export function getBrands(params: {
   limit?: number;
   offset?: number;
   search?: string;
+  branch?: string;
+  minProducts?: number;
+  minCategories?: number;
   sort?: BrandSort;
   dir?: SortDir;
 }): Promise<BrandList> {
-  const query = new URLSearchParams();
-  if (params.limit) query.set("limit", String(params.limit));
-  if (params.offset) query.set("offset", String(params.offset));
-  if (params.search) query.set("search", params.search);
-  if (params.sort) query.set("sort", params.sort);
-  if (params.dir) query.set("dir", params.dir);
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return apiFetch<BrandList>(`/catalog/brands${suffix}`);
+  return apiFetch<BrandList>(`/catalog/brands${query({ ...params })}`);
 }
 
 export function getProducts(params: {
   categoryId?: string;
+  branch?: string;
   brandId?: string;
   search?: string;
+  domainId?: string;
+  status?: ProductStatus;
+  brand?: "any" | "none";
+  photo?: Tristate;
   limit?: number;
   offset?: number;
   sort?: ProductSort;
   dir?: SortDir;
 }): Promise<ProductList> {
-  const query = new URLSearchParams();
-  if (params.categoryId) query.set("categoryId", params.categoryId);
-  if (params.brandId) query.set("brandId", params.brandId);
-  if (params.search) query.set("search", params.search);
-  if (params.limit) query.set("limit", String(params.limit));
-  if (params.offset) query.set("offset", String(params.offset));
-  if (params.sort) query.set("sort", params.sort);
-  if (params.dir) query.set("dir", params.dir);
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return apiFetch<ProductList>(`/catalog/products${suffix}`);
+  return apiFetch<ProductList>(`/catalog/products${query({ ...params })}`);
 }
 
 export function getProduct(id: string): Promise<ProductDetail> {
