@@ -151,6 +151,11 @@ Por eso el backend se autolimita:
   tiempo no se escanean (las nunca escaneadas primero, despues por antiguedad, a igualdad
   las de mas items) y escanea `concurrency` a la vez, esperando `delaySeconds` entre tandas.
   Se prende y apaga por API y el estado vive en `crawler_state`.
+- **Al terminar una pasada no se apaga: se duerme.** Cuando ya no queda ninguna
+  categoria con el scan mas viejo que `restaleDays` (default 7 dias), calcula cuando
+  vence la mas antigua y espera hasta ahi, revisando cada 10 minutos por si aparecen
+  categorias nuevas. `GET /api/catalog/crawler` expone `nextPassAt` con esa fecha.
+  Antes hacia `enabled: false` y no volvia a arrancar nunca.
 
 **El ritmo tiene tres palancas**, medidas contra la API real (cada scan son seeds x pages
 requests, con seeds=6 y pages=6 son 36):
