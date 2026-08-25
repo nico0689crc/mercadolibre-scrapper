@@ -171,6 +171,43 @@ ahi empieza la contencion. **Cero 429 en ~10.000 requests**; el token bucket nun
 que frenar. Las palancas son `concurrency` y `delaySeconds` (por API, en caliente) y
 `ML_SEARCH_CONCURRENCY` (semillas en paralelo dentro de un scan, por env).
 
+## Manuales
+
+El objetivo final: el PDF oficial de cada modelo de linea blanca. Hay dos vias y las dos
+corren solas en `ManualCrawlerService` (`@Interval` de 2 min, un fabricante por vez).
+
+1. **Recorrer el sitio del fabricante** (`ManualFinderService.crawl`) — gratis, respeta
+   robots.txt y la franja horaria del sitio (drean.com.ar solo acepta 04:00-08:45 UTC).
+   Falla seguido: hay marcas que publican en un subdominio no enlazado
+   (`descargas.whirlpool.com.ar`), en un CDN de otro pais, o cuyo sitio es una SPA y el
+   HTML del server viene vacio (peabody.com.ar).
+2. **Buscar el modelo en la web** (`searchModel` + `resolvePdf`) — `<marca> <modelo> manual
+   pdf` en Brave. Cuesta **una consulta del cupo por modelo**, asi que va de a
+   `SEARCH_PER_TICK` (3) por pasada y solo hasta el 70% del cupo mensual; el resto queda
+   para lo que se pida a mano. A mano: `POST /api/catalog/manufacturers/:brandId/search-manuals?limit=`.
+
+**Bajar un PDF no prueba que sea el manual de ese modelo.** Los fabricantes nombran los
+archivos por linea (`Manual-Drean-Next-ECO.pdf` cubre `10.12 P ECO` y diez modelos mas),
+asi que cada manual guarda en `match_reason` con que evidencia se acepto, de mas a menos
+firme: `url` (el modelo esta en el nombre del archivo), `contenido` (esta adentro del PDF),
+`pagina` (la pagina que lo enlaza lo nombra y era el unico PDF), `resultado` (lo nombra el
+titulo o resumen del buscador) y `tokens` (coincide solo una parte). Sin ninguna de esas
+señales no se guarda: asi se descarto un PDF de calentadores de agua de Estados Unidos que
+Brave devolvia primero para un numero de repuesto de Whirlpool.
+
+`pdfMentions()` descomprime los streams del PDF y busca la cadena. **Solo sirve para
+aceptar, nunca para descartar**: con fuentes embebidas con encoding propio el texto sale
+ilegible y no encuentra ni el modelo ni el nombre de la linea (probado contra el manual
+oficial de Drean Next ECO y contra el de Whirlpool WRX12K2).
+
+Medido sobre 47 modelos de 10 fabricantes: **11 resueltos (23%)**. La tasa varia muchisimo
+por marca (Gafa 3/5, Enxuta 2/5, Whirlpool 0/5) y el cuello de botella no es la busqueda
+sino **el atributo MODEL de ML**, que trae numeros de repuesto (`2188656`), medidas
+(`67 Litros`) y rangos de temperatura (`+2/-7`). Por eso `isModelCode()` exige letras y
+digitos antes de gastar una consulta.
+
+El dashboard lo muestra en `/manuals`, con la evidencia de cada fila en un badge con popover.
+
 ## Deploy en Railway
 
 Guia completa en `docs/railway.md`. Lo esencial:
