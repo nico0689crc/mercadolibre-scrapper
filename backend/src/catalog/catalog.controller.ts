@@ -27,6 +27,7 @@ import {
   type DomainOption,
   type ProductList,
 } from './products-store.service';
+import { ManualCrawlerService } from './manual-crawler.service';
 import { ManualsService } from './manuals.service';
 import { ManufacturersService } from './manufacturers.service';
 import { ScanService } from './scan.service';
@@ -59,6 +60,7 @@ export class CatalogController {
     private readonly crawler: CrawlerService,
     private readonly manufacturers: ManufacturersService,
     private readonly manuals: ManualsService,
+    private readonly manualCrawler: ManualCrawlerService,
   ) {}
 
   /** Estado del llenado progresivo. */
@@ -255,6 +257,23 @@ export class CatalogController {
     @Body() body: RejectManufacturerDto,
   ) {
     return this.manufacturers.reject(brandId, body.notes);
+  }
+
+  /** Estado del worker que baja manuales. */
+  @Get('manuals/crawler')
+  manualCrawlerStatus() {
+    return this.manualCrawler.status();
+  }
+
+  /** Prende el worker de manuales. Espera solo la ventana horaria de cada sitio. */
+  @Post('manuals/crawler/start')
+  startManualCrawler(@Body() body: { restaleDays?: number; verify?: boolean }) {
+    return this.manualCrawler.start(body ?? {});
+  }
+
+  @Post('manuals/crawler/stop')
+  stopManualCrawler() {
+    return this.manualCrawler.stop();
   }
 
   /** Manuales ya descubiertos. */

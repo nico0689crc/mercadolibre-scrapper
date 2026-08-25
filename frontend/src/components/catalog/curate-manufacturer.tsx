@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Search, Sparkles, X } from "lucide-react";
+import { Check, Pencil, RotateCcw, Search, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -36,7 +36,19 @@ export function CurateManufacturer({ manufacturer }: { manufacturer: Manufacture
   const [openAccept, setOpenAccept] = useState(false);
   const [openReject, setOpenReject] = useState(false);
   const [resolution, setResolution] = useState<DomainResolution | null>(null);
-  const [domain, setDomain] = useState(manufacturer.officialDomains[0] ?? "");
+
+  // Al guardar, la action revalida la ruta y esta instancia se reusa con la
+  // prop nueva: sin este sync el input seguiria mostrando el dominio viejo.
+  const saved = manufacturer.officialDomains[0] ?? "";
+  const [domain, setDomain] = useState(saved);
+  const [lastSaved, setLastSaved] = useState(saved);
+  if (lastSaved !== saved) {
+    setLastSaved(saved);
+    setDomain(saved);
+  }
+
+  const isVerified = manufacturer.status === "verified";
+  const isRejected = manufacturer.status === "rejected";
 
   /**
    * `useSearch` false resuelve solo con la heuristica del nombre y no gasta
@@ -77,14 +89,26 @@ export function CurateManufacturer({ manufacturer }: { manufacturer: Manufacture
       <Dialog open={openAccept} onOpenChange={setOpenAccept}>
         <DialogTrigger asChild>
           <Button size="sm" variant="outline" disabled={pending}>
-            {pending ? <Spinner /> : <Check aria-hidden="true" />}
-            Aceptar
+            {pending ? (
+              <Spinner />
+            ) : isVerified ? (
+              <Pencil aria-hidden="true" />
+            ) : isRejected ? (
+              <RotateCcw aria-hidden="true" />
+            ) : (
+              <Check aria-hidden="true" />
+            )}
+            {isVerified ? "Editar dominio" : isRejected ? "Reactivar" : "Aceptar"}
           </Button>
         </DialogTrigger>
         <DialogContent>
           <form action={(fd) => run(acceptManufacturerAction, fd, setOpenAccept)}>
             <DialogHeader>
-              <DialogTitle>Aceptar {manufacturer.name} como fabricante</DialogTitle>
+              <DialogTitle>
+                {isVerified
+                  ? `Dominio oficial de ${manufacturer.name}`
+                  : `Aceptar ${manufacturer.name} como fabricante`}
+              </DialogTitle>
               <DialogDescription>
                 Anota el dominio desde el que se van a bajar los manuales. Se guarda
                 como verificada, que es el estado que exige evidencia.
@@ -187,54 +211,56 @@ export function CurateManufacturer({ manufacturer }: { manufacturer: Manufacture
               </DialogClose>
               <Button type="submit" disabled={pending}>
                 {pending ? <Spinner /> : null}
-                Aceptar como fabricante
+                {isVerified ? "Guardar dominio" : "Aceptar como fabricante"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={openReject} onOpenChange={setOpenReject}>
-        <DialogTrigger asChild>
-          <Button size="sm" variant="ghost" disabled={pending}>
-            <X aria-hidden="true" />
-            Descartar
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <form action={(fd) => run(rejectManufacturerAction, fd, setOpenReject)}>
-            <DialogHeader>
-              <DialogTitle>Descartar {manufacturer.name}</DialogTitle>
-              <DialogDescription>
-                Vendedor de marketplace, marca propia de retail, o un valor que no es una
-                marca. Queda registrado el motivo.
-              </DialogDescription>
-            </DialogHeader>
+      {isRejected ? null : (
+        <Dialog open={openReject} onOpenChange={setOpenReject}>
+          <DialogTrigger asChild>
+            <Button size="sm" variant="ghost" disabled={pending}>
+              <X aria-hidden="true" />
+              Descartar
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <form action={(fd) => run(rejectManufacturerAction, fd, setOpenReject)}>
+              <DialogHeader>
+                <DialogTitle>Descartar {manufacturer.name}</DialogTitle>
+                <DialogDescription>
+                  Vendedor de marketplace, marca propia de retail, o un valor que no es una
+                  marca. Queda registrado el motivo.
+                </DialogDescription>
+              </DialogHeader>
 
-            <div className="grid gap-2 py-4">
-              <Label htmlFor={`notes-r-${manufacturer.brandId}`}>Motivo</Label>
-              <Textarea
-                id={`notes-r-${manufacturer.brandId}`}
-                name="notes"
-                rows={3}
-                placeholder="Ej: vendedor, el dominio no resuelve y el catalogo esta disperso"
-              />
-            </div>
+              <div className="grid gap-2 py-4">
+                <Label htmlFor={`notes-r-${manufacturer.brandId}`}>Motivo</Label>
+                <Textarea
+                  id={`notes-r-${manufacturer.brandId}`}
+                  name="notes"
+                  rows={3}
+                  placeholder="Ej: vendedor, el dominio no resuelve y el catalogo esta disperso"
+                />
+              </div>
 
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">
-                  Cancelar
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">
+                    Cancelar
+                  </Button>
+                </DialogClose>
+                <Button type="submit" variant="destructive" disabled={pending}>
+                  {pending ? <Spinner /> : null}
+                  Descartar
                 </Button>
-              </DialogClose>
-              <Button type="submit" variant="destructive" disabled={pending}>
-                {pending ? <Spinner /> : null}
-                Descartar
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -64,6 +64,21 @@ export interface Methodology {
   signals: SignalRow[];
 }
 
+/** Un fabricante tal como lo devuelve la API: la fila mas el nombre de la marca. */
+export interface ManufacturerRow {
+  brandId: string;
+  name: string;
+  mlValueId: string | null;
+  status: ManufacturerStatus;
+  segment: string;
+  officialDomains: string[];
+  evidenceUrl: string | null;
+  notes: string | null;
+  products: number;
+  models: number;
+  verifiedAt: Date | null;
+}
+
 export interface ManufacturerCandidate {
   brandId: string;
   name: string;
@@ -197,7 +212,56 @@ export class ManufacturersService {
   }
 
   async list(segment?: string, status?: ManufacturerStatus) {
-    const qb = this.repo
+    const qb = this.rowsQuery();
+
+    if (segment) qb.andWhere('m.segment = :segment', { segment });
+    if (status) qb.andWhere('m.status = :status', { status });
+
+    return qb.getRawMany<ManufacturerRow>();
+  }
+
+  /** Curacion manual: aceptar como fabricante con sus dominios oficiales. */
+  async accept(brandId: string, officialDomains: string[], notes?: string) {
+    const m = await this.get(brandId);
+    m.status = 'verified';
+    m.officialDomains = officialDomains;
+    m.notes = notes ?? m.notes;
+    m.verifiedAt = new Date();
+    await this.repo.save(m);
+    return this.row(brandId);
+  }
+
+  /** Curacion manual: descartar (vendedor de marketplace, marca propia, basura). */
+  async reject(brandId: string, notes?: string) {
+    const m = await this.get(brandId);
+    m.status = 'rejected';
+    m.notes = notes ?? m.notes;
+    m.verifiedAt = null;
+    await this.repo.save(m);
+    return this.row(brandId);
+  }
+
+  /**
+   * Las mutaciones devuelven la misma fila que `list()`, no la entidad cruda:
+   * `manufacturers` no tiene `name` (el nombre vive en `brands`), asi que
+   * devolver la entidad dejaba al frontend con un `name` undefined.
+   */
+  private async row(brandId: string): Promise<ManufacturerRow> {
+    const row = await this.rowsQuery()
+      .andWhere('m.brand_id = :brandId', { brandId })
+      .getRawOne<ManufacturerRow>();
+
+    if (!row) {
+      throw new NotFoundException(
+        `La marca ${brandId} no esta en manufacturers`,
+      );
+    }
+    return row;
+  }
+
+  /** La proyeccion publica de un fabricante, con el nombre de la marca. */
+  private rowsQuery() {
+    return this.repo
       .createQueryBuilder('m')
       .innerJoin('m.brand', 'b')
       .select([
@@ -214,30 +278,6 @@ export class ManufacturersService {
         'm.verified_at AS "verifiedAt"',
       ])
       .orderBy('m.models', 'DESC');
-
-    if (segment) qb.andWhere('m.segment = :segment', { segment });
-    if (status) qb.andWhere('m.status = :status', { status });
-
-    return qb.getRawMany();
-  }
-
-  /** Curacion manual: aceptar como fabricante con sus dominios oficiales. */
-  async accept(brandId: string, officialDomains: string[], notes?: string) {
-    const m = await this.get(brandId);
-    m.status = 'verified';
-    m.officialDomains = officialDomains;
-    m.notes = notes ?? m.notes;
-    m.verifiedAt = new Date();
-    return this.repo.save(m);
-  }
-
-  /** Curacion manual: descartar (vendedor de marketplace, marca propia, basura). */
-  async reject(brandId: string, notes?: string) {
-    const m = await this.get(brandId);
-    m.status = 'rejected';
-    m.notes = notes ?? m.notes;
-    m.verifiedAt = null;
-    return this.repo.save(m);
   }
 
   private async get(brandId: string): Promise<Manufacturer> {
