@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react";
 
 import { CurateManufacturer } from "@/components/catalog/curate-manufacturer";
 import { ManufacturerStatusBadge } from "@/components/catalog/manufacturer-status-badge";
+import { WhyBadge } from "@/components/catalog/why-badge";
 import { HeaderHint } from "@/components/catalog/sort-header";
 import {
   Table,
@@ -22,10 +23,17 @@ export function ManufacturersTable({
   items: Manufacturer[];
   thresholds: { minProducts: number; minModels: number };
 }) {
-  /** Para un candidato, el texto explica el umbral concreto que cumplio. */
+  /** El detalle del popover: la nota curada, o el umbral concreto que cumplio. */
   const why = (m: Manufacturer) =>
     m.notes ??
-    `Cumple el umbral: ${m.models} modelos distintos (minimo ${thresholds.minModels}) sobre ${m.products} productos (minimo ${thresholds.minProducts}). Falta confirmar el dominio oficial.`;
+    `Cumple el umbral con ${m.models} modelos distintos (minimo ${thresholds.minModels}) sobre ${m.products} productos (minimo ${thresholds.minProducts}), dentro de los dominios del segmento. Eso la hace candidata, no fabricante: falta confirmar el dominio oficial de donde bajar los manuales.`;
+
+  const whyTitle = (m: Manufacturer) =>
+    m.status === "verified"
+      ? "Verificada con evidencia"
+      : m.status === "rejected"
+        ? "Descartada a mano"
+        : "Paso el umbral automatico";
 
   return (
     <Table>
@@ -80,8 +88,8 @@ export function ManufacturersTable({
                 <span className="text-muted-foreground">—</span>
               )}
             </TableCell>
-            <TableCell className="text-muted-foreground max-w-md text-sm text-pretty">
-              {why(m)}
+            <TableCell>
+              <WhyBadge status={m.status} title={whyTitle(m)} detail={why(m)} />
             </TableCell>
             <TableCell className="text-right">
               <div className="flex justify-end">
