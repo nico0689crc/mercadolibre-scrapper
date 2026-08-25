@@ -6,6 +6,7 @@ import {
   Category,
   CategoryBrand,
   CrawlerState,
+  Manual,
   Manufacturer,
   Product,
   ScanRun,
@@ -17,6 +18,7 @@ import { BrandsStoreService } from './brands-store.service';
 import { CatalogController } from './catalog.controller';
 import { CategoriesStoreService } from './categories-store.service';
 import { CrawlerService } from './crawler.service';
+import { ManualsService } from './manuals.service';
 import { ManufacturersService } from './manufacturers.service';
 import { ProductsStoreService } from './products-store.service';
 import { ScanService } from './scan.service';
@@ -28,6 +30,7 @@ import { ScanService } from './scan.service';
       Category,
       CategoryBrand,
       CrawlerState,
+      Manual,
       Manufacturer,
       Product,
       ScanRun,
@@ -43,6 +46,7 @@ import { ScanService } from './scan.service';
     ScanService,
     CrawlerService,
     ManufacturersService,
+    ManualsService,
     BootstrapService,
   ],
   exports: [
@@ -52,6 +56,7 @@ import { ScanService } from './scan.service';
     ScanService,
     CrawlerService,
     ManufacturersService,
+    ManualsService,
   ],
 })
 export class CatalogModule {}

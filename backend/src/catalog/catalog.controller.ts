@@ -27,6 +27,7 @@ import {
   type DomainOption,
   type ProductList,
 } from './products-store.service';
+import { ManualsService } from './manuals.service';
 import { ManufacturersService } from './manufacturers.service';
 import { ScanService } from './scan.service';
 
@@ -57,6 +58,7 @@ export class CatalogController {
     private readonly scans: ScanService,
     private readonly crawler: CrawlerService,
     private readonly manufacturers: ManufacturersService,
+    private readonly manuals: ManualsService,
   ) {}
 
   /** Estado del llenado progresivo. */
@@ -253,6 +255,32 @@ export class CatalogController {
     @Body() body: RejectManufacturerDto,
   ) {
     return this.manufacturers.reject(brandId, body.notes);
+  }
+
+  /** Manuales ya descubiertos. */
+  @Get('manuals')
+  listManuals(@Query('brandId') brandId?: string) {
+    return this.manuals.list(brandId);
+  }
+
+  @Get('manuals/stats')
+  manualStats() {
+    return this.manuals.stats();
+  }
+
+  /**
+   * Recorre el sitio oficial del fabricante buscando manuales. `?verify=0` no
+   * descarga los PDF para confirmarlos (mas rapido, menos certeza).
+   */
+  @Post('manufacturers/:brandId/crawl-manuals')
+  crawlManuals(
+    @Param('brandId') brandId: string,
+    @Query('verify') verify?: string,
+  ) {
+    return this.manuals.crawlBrand(
+      brandId,
+      verify !== '0' && verify !== 'false',
+    );
   }
 
   @Get('scans')

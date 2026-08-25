@@ -7,6 +7,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SearchQuota } from '../database/entities';
 import { BraveSearchService } from './brave-search.service';
 import { DomainResolverService } from './domain-resolver.service';
+import { ManualFinderService } from './manual-finder.service';
+import { SiteCrawlerService } from './site-crawler.service';
 
 @Module({
   imports: [
@@ -23,7 +25,17 @@ import { DomainResolverService } from './domain-resolver.service';
       }),
     }),
   ],
-  providers: [BraveSearchService, DomainResolverService],
-  exports: [BraveSearchService, DomainResolverService],
+  providers: [
+    BraveSearchService,
+    DomainResolverService,
+    SiteCrawlerService,
+    ManualFinderService,
+  ],
+  exports: [
+    BraveSearchService,
+    DomainResolverService,
+    SiteCrawlerService,
+    ManualFinderService,
+  ],
 })
 export class SearchModule {}

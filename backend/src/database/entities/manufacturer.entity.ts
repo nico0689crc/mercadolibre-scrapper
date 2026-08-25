@@ -64,6 +64,29 @@ export class Manufacturer {
   @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt: Date | null;
 
+  /**
+   * Lo que el crawler aprendio sobre como publica manuales este fabricante.
+   * Se guarda en la base y no en el codigo porque cada sitio es distinto y el
+   * patron se descubre corriendo, no leyendo.
+   */
+  @Column({
+    name: 'crawl_strategy',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  crawlStrategy: string | null;
+
+  /** Detalle de la estrategia: sitemaps utiles, rutas de soporte, delay observado. */
+  @Column({ name: 'crawl_config', type: 'jsonb', default: () => "'{}'::jsonb" })
+  crawlConfig: Record<string, unknown>;
+
+  @Column({ name: 'crawled_at', type: 'timestamptz', nullable: true })
+  crawledAt: Date | null;
+
+  @Column({ name: 'manuals_found', type: 'integer', default: 0 })
+  manualsFound: number;
+
   @OneToOne(() => Brand, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'brand_id' })
   brand: Brand;
