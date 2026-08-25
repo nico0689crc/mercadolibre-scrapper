@@ -6,3 +6,4 @@ export { Manufacturer } from './manufacturer.entity';
 export type { ManufacturerStatus } from './manufacturer.entity';
 export { Product } from './product.entity';
 export { ScanRun } from './scan-run.entity';
+export { SearchQuota } from './search-quota.entity';

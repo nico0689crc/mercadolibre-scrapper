@@ -8,6 +8,7 @@ import { appConfig } from './config/app.config';
 import { databaseConfig } from './config/database.config';
 import { validateEnv } from './config/env.validation';
 import { mercadolibreConfig } from './config/mercadolibre.config';
+import { searchConfig } from './config/search.config';
 import { CatalogModule } from './catalog/catalog.module';
 import { DatabaseModule } from './database/database.module';
 import { MercadoLibreModule } from './mercadolibre/mercadolibre.module';
@@ -18,7 +19,7 @@ import { MercadoLibreModule } from './mercadolibre/mercadolibre.module';
       isGlobal: true,
       cache: true,
       envFilePath: ['.env.local', '.env'],
-      load: [appConfig, databaseConfig, mercadolibreConfig],
+      load: [appConfig, databaseConfig, mercadolibreConfig, searchConfig],
       validate: validateEnv,
     }),
     ScheduleModule.forRoot(),

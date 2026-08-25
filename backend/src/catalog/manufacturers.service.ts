@@ -8,6 +8,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { Manufacturer, type ManufacturerStatus } from '../database/entities';
+import { BraveSearchService } from '../search/brave-search.service';
+import {
+  DomainResolverService,
+  type DomainResolution,
+} from '../search/domain-resolver.service';
 import { SEGMENTS, segmentDomains } from './segments';
 
 /**
@@ -76,7 +81,35 @@ export class ManufacturersService {
     @InjectRepository(Manufacturer)
     private readonly repo: Repository<Manufacturer>,
     private readonly dataSource: DataSource,
+    private readonly resolver: DomainResolverService,
+    private readonly brave: BraveSearchService,
   ) {}
+
+  /** Cuanto cupo de busqueda queda este mes. */
+  quotaUsage() {
+    return this.brave.usage();
+  }
+
+  /**
+   * Propone el dominio oficial de una marca. No lo guarda: devuelve la
+   * propuesta con su evidencia para que alguien la acepte, porque `verified`
+   * sigue exigiendo un manual descargado desde ahi.
+   */
+  async resolveDomain(
+    brandId: string,
+    useSearch = true,
+  ): Promise<DomainResolution> {
+    const m = await this.repo.findOne({
+      where: { brandId },
+      relations: { brand: true },
+    });
+    if (!m) {
+      throw new NotFoundException(
+        `La marca ${brandId} no esta en manufacturers`,
+      );
+    }
+    return this.resolver.resolve(m.brand.name, useSearch);
+  }
 
   segments() {
     return Object.entries(SEGMENTS).map(([key, s]) => ({

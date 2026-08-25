@@ -9,6 +9,7 @@ import {
   Manufacturer,
   Product,
   ScanRun,
+  SearchQuota,
 } from './entities';
 
 // Solo para el CLI de TypeORM (generar y correr migraciones). La app usa
@@ -38,6 +39,7 @@ export default new DataSource({
     Manufacturer,
     Product,
     ScanRun,
+    SearchQuota,
   ],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: false,

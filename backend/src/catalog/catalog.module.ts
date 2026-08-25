@@ -11,6 +11,7 @@ import {
   ScanRun,
 } from '../database/entities';
 import { MercadoLibreModule } from '../mercadolibre/mercadolibre.module';
+import { SearchModule } from '../search/search.module';
 import { BootstrapService } from './bootstrap.service';
 import { BrandsStoreService } from './brands-store.service';
 import { CatalogController } from './catalog.controller';
@@ -32,6 +33,7 @@ import { ScanService } from './scan.service';
       ScanRun,
     ]),
     MercadoLibreModule,
+    SearchModule,
   ],
   controllers: [CatalogController],
   providers: [

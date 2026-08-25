@@ -10,6 +10,7 @@ import {
   Manufacturer,
   Product,
   ScanRun,
+  SearchQuota,
 } from './entities';
 
 @Module({
@@ -45,6 +46,7 @@ import {
             Manufacturer,
             Product,
             ScanRun,
+            SearchQuota,
           ],
           // El esquema lo manejan las migraciones, nunca synchronize.
           synchronize: false,

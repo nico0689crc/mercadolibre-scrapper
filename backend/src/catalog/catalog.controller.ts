@@ -216,6 +216,27 @@ export class CatalogController {
     return this.manufacturers.detect(body.segment);
   }
 
+  /** Cuantas consultas de busqueda quedan este mes. */
+  @Get('manufacturers/quota')
+  getQuota() {
+    return this.manufacturers.quotaUsage();
+  }
+
+  /**
+   * Propone el dominio oficial de la marca. `?search=0` usa solo la heuristica
+   * del nombre y no consume cupo. No guarda nada: es una propuesta.
+   */
+  @Get('manufacturers/:brandId/resolve-domain')
+  resolveDomain(
+    @Param('brandId') brandId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.manufacturers.resolveDomain(
+      brandId,
+      search !== '0' && search !== 'false',
+    );
+  }
+
   /** Acepta la marca como fabricante, con sus dominios oficiales. */
   @Post('manufacturers/:brandId/accept')
   acceptManufacturer(
