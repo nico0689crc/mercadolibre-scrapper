@@ -7,6 +7,7 @@ import {
   Category,
   CategoryBrand,
   CrawlerState,
+  Manufacturer,
   Product,
   ScanRun,
 } from './entities';
@@ -41,6 +42,7 @@ import {
             Category,
             CategoryBrand,
             CrawlerState,
+            Manufacturer,
             Product,
             ScanRun,
           ],

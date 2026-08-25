@@ -6,6 +6,7 @@ import {
   Category,
   CategoryBrand,
   CrawlerState,
+  Manufacturer,
   Product,
   ScanRun,
 } from './entities';
@@ -29,7 +30,15 @@ export default new DataSource({
     process.env.DATABASE_SSL === 'true'
       ? { rejectUnauthorized: false }
       : undefined,
-  entities: [Brand, Category, CategoryBrand, CrawlerState, Product, ScanRun],
+  entities: [
+    Brand,
+    Category,
+    CategoryBrand,
+    CrawlerState,
+    Manufacturer,
+    Product,
+    ScanRun,
+  ],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: false,
 });

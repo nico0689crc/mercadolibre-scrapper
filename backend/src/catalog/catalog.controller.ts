@@ -11,6 +11,13 @@ import {
 import { CrawlerService, type CrawlerStatus } from './crawler.service';
 import { CrawlerSettingsDto } from './dto/crawler-settings.dto';
 import { ListBrandsDto } from './dto/list-brands.dto';
+import {
+  AcceptManufacturerDto,
+  CandidatesQueryDto,
+  ListManufacturersDto,
+  RejectManufacturerDto,
+  SegmentDto,
+} from './dto/manufacturer.dto';
 import { ListCategoriesDto } from './dto/list-categories.dto';
 import { ListProductsDto } from './dto/list-products.dto';
 import { ScanCategoryDto } from './dto/scan-category.dto';
@@ -20,6 +27,7 @@ import {
   type DomainOption,
   type ProductList,
 } from './products-store.service';
+import { ManufacturersService } from './manufacturers.service';
 import { ScanService } from './scan.service';
 
 export interface CatalogStats {
@@ -48,6 +56,7 @@ export class CatalogController {
     private readonly products: ProductsStoreService,
     private readonly scans: ScanService,
     private readonly crawler: CrawlerService,
+    private readonly manufacturers: ManufacturersService,
   ) {}
 
   /** Estado del llenado progresivo. */
@@ -167,6 +176,56 @@ export class CatalogController {
     @Query('refresh') refresh?: string,
   ): Promise<Product> {
     return this.products.findOne(id, refresh === '1' || refresh === 'true');
+  }
+
+  /** Segmentos donde tiene sentido buscar fabricantes. */
+  @Get('manufacturers/segments')
+  getSegments() {
+    return this.manufacturers.segments();
+  }
+
+  /** Marcas del segmento que pasan el filtro automatico. No escribe nada. */
+  @Get('manufacturers/candidates')
+  getCandidates(@Query() query: CandidatesQueryDto) {
+    return this.manufacturers.candidates(
+      query.segment,
+      query.includeAll ?? false,
+    );
+  }
+
+  /** Fabricantes ya registrados, filtrables por segmento y estado. */
+  @Get('manufacturers')
+  listManufacturers(@Query() query: ListManufacturersDto) {
+    return this.manufacturers.list(query.segment, query.status);
+  }
+
+  @Get('manufacturers/counts')
+  manufacturerCounts() {
+    return this.manufacturers.counts();
+  }
+
+  /** Congela los candidatos del segmento como filas `candidate`. Idempotente. */
+  @Post('manufacturers/detect')
+  detectManufacturers(@Body() body: SegmentDto) {
+    return this.manufacturers.detect(body.segment);
+  }
+
+  /** Acepta la marca como fabricante, con sus dominios oficiales. */
+  @Post('manufacturers/:brandId/accept')
+  acceptManufacturer(
+    @Param('brandId') brandId: string,
+    @Body() body: AcceptManufacturerDto,
+  ) {
+    return this.manufacturers.accept(brandId, body.officialDomains, body.notes);
+  }
+
+  /** Descarta la marca: vendedor de marketplace, marca propia o basura. */
+  @Post('manufacturers/:brandId/reject')
+  rejectManufacturer(
+    @Param('brandId') brandId: string,
+    @Body() body: RejectManufacturerDto,
+  ) {
+    return this.manufacturers.reject(brandId, body.notes);
   }
 
   @Get('scans')
