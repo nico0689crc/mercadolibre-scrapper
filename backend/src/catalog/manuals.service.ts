@@ -3,10 +3,54 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { Manual, Manufacturer } from '../database/entities';
+import type {
+  MatchReason,
+  SearchHit,
+  VerifiedFile,
+} from '../search/manual-finder.service';
 import {
   ManualFinderService,
   normalizeModel,
 } from '../search/manual-finder.service';
+
+export interface ManualRow {
+  id: string;
+  brand: string;
+  model: string;
+  modelRaw: string;
+  url: string;
+  sourceDomain: string;
+  bytes: number | null;
+  matchReason: string | null;
+  verified: boolean;
+  checkedAt: Date | null;
+  /** Producto de la misma marca cuyo modelo coincide, si lo tenemos. */
+  productId: string | null;
+  productName: string | null;
+  /** Cuantos productos comparten ese modelo: el PDF cubre a todos. */
+  productCount: number;
+}
+
+export interface SearchReport {
+  brand: string;
+  tried: number;
+  found: number;
+  verified: number;
+  /** Cuantos salieron de un dominio que contiene el nombre de la marca. */
+  fromOfficial: number;
+  /** De que dominios salieron, para aprender donde buscar despues. */
+  domains: Record<string, number>;
+  /** Que se encontro modelo por modelo, para poder revisarlo a mano. */
+  samples: {
+    model: string;
+    url: string;
+    domain: string;
+    official: boolean;
+    verified: boolean;
+    reason?: MatchReason;
+  }[];
+  quotaExhausted: boolean;
+}
 
 export interface CrawlReport {
   brand: string;
@@ -125,6 +169,159 @@ export class ManualsService {
     return report;
   }
 
+  /**
+   * Busca por modelo los manuales que el crawl del sitio no encontro.
+   *
+   * Cada modelo cuesta una consulta del cupo, por eso `limit`. Es la via cara
+   * pero la que mas cubre: en la muestra que probamos acerto 6 de 6, y en 4 de
+   * esos 6 el resultado estaba igual en un dominio oficial que el crawl del
+   * sitio no habia encontrado.
+   */
+  async searchMissing(brandId: string, limit = 10): Promise<SearchReport> {
+    const manufacturer = await this.manufacturers.findOne({
+      where: { brandId },
+      relations: { brand: true },
+    });
+    if (!manufacturer) {
+      throw new NotFoundException(
+        `La marca ${brandId} no esta en manufacturers`,
+      );
+    }
+
+    const pending = await this.modelsWithoutManual(brandId, limit);
+    const report: SearchReport = {
+      brand: manufacturer.brand.name,
+      tried: 0,
+      found: 0,
+      verified: 0,
+      fromOfficial: 0,
+      domains: {},
+      samples: [],
+      quotaExhausted: false,
+    };
+
+    for (const modelRaw of pending) {
+      let candidates: SearchHit[];
+      try {
+        report.tried += 1;
+        candidates = await this.finder.searchModel(
+          manufacturer.brand.name,
+          modelRaw,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'error';
+        // El cupo mensual se agoto: no tiene sentido seguir intentando.
+        report.quotaExhausted = /[Cc]upo mensual/.test(message);
+        this.logger.warn(`Corte de busqueda en ${modelRaw}: ${message}`);
+        break;
+      }
+
+      if (candidates.length === 0) continue;
+      report.found += 1;
+
+      // Los candidatos ya vienen ordenados; el primero que baje un PDF real gana.
+      let resolved: {
+        hit: SearchHit;
+        url: string;
+        checked: VerifiedFile;
+        reason: MatchReason;
+      } | null = null;
+      for (const hit of candidates.slice(0, 4)) {
+        const pdf = await this.finder.resolvePdf(hit, modelRaw);
+        if (pdf) {
+          resolved = { hit, ...pdf };
+          break;
+        }
+      }
+
+      if (!resolved) {
+        report.samples.push({
+          model: modelRaw,
+          url: candidates[0].url,
+          domain: candidates[0].sourceDomain,
+          official: candidates[0].official,
+          verified: false,
+        });
+        continue;
+      }
+
+      report.verified += 1;
+      const domain = resolved.hit.sourceDomain;
+      report.domains[domain] = (report.domains[domain] ?? 0) + 1;
+      if (resolved.hit.official) report.fromOfficial += 1;
+      report.samples.push({
+        model: modelRaw,
+        url: resolved.url,
+        domain,
+        official: resolved.hit.official,
+        verified: true,
+        reason: resolved.reason,
+      });
+
+      await this.dataSource.query(
+        `INSERT INTO manuals
+           (brand_id, model, model_raw, url, source_domain, found_at_url,
+            content_type, bytes, sha256, match_reason, verified, checked_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true, now())
+         ON CONFLICT (brand_id, model) DO UPDATE SET
+           url = EXCLUDED.url, source_domain = EXCLUDED.source_domain,
+           found_at_url = EXCLUDED.found_at_url,
+           content_type = EXCLUDED.content_type, bytes = EXCLUDED.bytes,
+           sha256 = EXCLUDED.sha256, match_reason = EXCLUDED.match_reason,
+           verified = true, checked_at = now(), updated_at = now()`,
+        [
+          brandId,
+          normalizeModel(modelRaw),
+          modelRaw,
+          resolved.url,
+          domain,
+          resolved.hit.direct ? null : resolved.hit.url,
+          resolved.checked.contentType,
+          resolved.checked.bytes,
+          resolved.checked.sha256,
+          resolved.reason,
+        ],
+      );
+    }
+
+    manufacturer.manualsFound = await this.manuals.count({
+      where: { brandId },
+    });
+    await this.manufacturers.save(manufacturer);
+
+    this.logger.log(
+      `${report.brand}: busque ${report.tried} modelos, ${report.verified} manuales confirmados (${report.fromOfficial} de dominio oficial)`,
+    );
+    return report;
+  }
+
+  /** Modelos con codigo plausible que todavia no tienen manual. */
+  private async modelsWithoutManual(
+    brandId: string,
+    limit: number,
+  ): Promise<string[]> {
+    const rows = await this.dataSource.query<{ modelo: string }[]>(
+      `SELECT DISTINCT (SELECT a->>'value_name' FROM jsonb_array_elements(p.attributes) a
+                         WHERE a->>'id' = 'MODEL') AS modelo
+       FROM products p
+       WHERE p.brand_id = $1
+       LIMIT 400`,
+      [brandId],
+    );
+
+    const existing = new Set(
+      (
+        await this.manuals.find({ where: { brandId }, select: { model: true } })
+      ).map((m) => m.model),
+    );
+
+    return rows
+      .map((r) => r.modelo)
+      .filter((m): m is string => typeof m === 'string' && isModelCode(m))
+      .filter((m) => !existing.has(normalizeModel(m)))
+      .slice(0, limit);
+  }
+
   /** Modelos normalizados que tenemos para esa marca. */
   private async modelsOf(brandId: string): Promise<Set<string>> {
     const rows = await this.dataSource.query<{ modelo: string }[]>(
@@ -141,26 +338,47 @@ export class ManualsService {
     );
   }
 
+  /**
+   * Los manuales con el producto al que corresponden.
+   *
+   * La tabla `manuals` se indexa por (marca, modelo) y no por producto porque
+   * un mismo PDF cubre varios modelos de una linea. Para mostrarlos hay que
+   * volver a atarlos: se busca el producto de la misma marca cuyo atributo
+   * MODEL normalizado coincide, y se informa cuantos comparten ese modelo.
+   */
   list(brandId?: string) {
-    const qb = this.manuals
-      .createQueryBuilder('m')
-      .innerJoin('m.brand', 'b')
-      .select([
-        'm.id AS id',
-        'b.name AS brand',
-        'm.model AS model',
-        'm.model_raw AS "modelRaw"',
-        'm.url AS url',
-        'm.source_domain AS "sourceDomain"',
-        'm.bytes AS bytes',
-        'm.verified AS verified',
-        'm.checked_at AS "checkedAt"',
-      ])
-      .orderBy('b.name', 'ASC')
-      .addOrderBy('m.model', 'ASC');
-
-    if (brandId) qb.where('m.brand_id = :brandId', { brandId });
-    return qb.getRawMany();
+    return this.dataSource.query<ManualRow[]>(
+      `SELECT m.id AS id,
+              b.name AS brand,
+              m.model AS model,
+              m.model_raw AS "modelRaw",
+              m.url AS url,
+              m.source_domain AS "sourceDomain",
+              m.bytes AS bytes,
+              m.match_reason AS "matchReason",
+              m.verified AS verified,
+              m.checked_at AS "checkedAt",
+              prod.id AS "productId",
+              prod.name AS "productName",
+              coalesce(prod.total, 0)::int AS "productCount"
+       FROM manuals m
+       JOIN brands b ON b.id = m.brand_id
+       LEFT JOIN LATERAL (
+         SELECT p.id, p.name, count(*) OVER () AS total
+         FROM products p
+         WHERE p.brand_id = m.brand_id
+           AND upper(regexp_replace(
+                 (SELECT a->>'value_name'
+                  FROM jsonb_array_elements(p.attributes) a
+                  WHERE a->>'id' = 'MODEL'
+                  LIMIT 1), '[^a-zA-Z0-9]', '', 'g')) = m.model
+         ORDER BY p.last_seen_at DESC
+         LIMIT 1
+       ) prod ON true
+       WHERE $1::uuid IS NULL OR m.brand_id = $1::uuid
+       ORDER BY b.name ASC, m.model ASC`,
+      [brandId ?? null],
+    );
   }
 
   async stats() {
@@ -174,4 +392,22 @@ export class ManualsService {
     ]);
     return { total, verified, brands: Number(brands?.n ?? 0) };
   }
+}
+
+/**
+ * Descarta lo que no parece un codigo de modelo.
+ *
+ * El atributo MODEL de ML trae de todo: numeros de repuesto (`2188656`),
+ * medidas (`67 Litros`) y hasta rangos de temperatura (`+2/-7`). Buscar esos
+ * gasta cupo y no devuelve nada, asi que se piden las dos cosas que tienen
+ * todos los modelos reales: letras y digitos.
+ */
+function isModelCode(raw: string): boolean {
+  const model = normalizeModel(raw);
+  return (
+    model.length >= 4 &&
+    model.length <= 30 &&
+    /[A-Z]/.test(model) &&
+    /[0-9]/.test(model)
+  );
 }

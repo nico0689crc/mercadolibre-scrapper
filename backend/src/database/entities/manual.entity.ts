@@ -59,6 +59,15 @@ export class Manual {
   @Column({ type: 'varchar', length: 64, nullable: true })
   sha256: string | null;
 
+  /**
+   * Por que creemos que el PDF es de ese modelo: `url` si el modelo aparece en
+   * la direccion del archivo, `contenido` si aparece adentro del PDF, `pagina`
+   * si la pagina que lo enlaza lo nombra y era el unico PDF. Nulo en los que
+   * salieron del crawl del sitio, donde el modelo se leyo de la propia ficha.
+   */
+  @Column({ name: 'match_reason', type: 'varchar', length: 16, nullable: true })
+  matchReason: string | null;
+
   /** Se confirmo que la URL devuelve un PDF de verdad. */
   @Column({ type: 'boolean', default: false })
   verified: boolean;

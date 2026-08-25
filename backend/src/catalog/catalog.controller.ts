@@ -276,6 +276,22 @@ export class CatalogController {
     return this.manualCrawler.stop();
   }
 
+  /**
+   * Busca en la web los manuales de los modelos que el crawl no encontro.
+   * Cuesta una consulta del cupo por modelo, de ahi el `limit`.
+   */
+  @Post('manufacturers/:brandId/search-manuals')
+  searchManuals(
+    @Param('brandId') brandId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsed = Number(limit);
+    return this.manuals.searchMissing(
+      brandId,
+      Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 50) : 10,
+    );
+  }
+
   /** Manuales ya descubiertos. */
   @Get('manuals')
   listManuals(@Query('brandId') brandId?: string) {

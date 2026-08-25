@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
+import { inflateSync } from 'node:zlib';
 
 import { Injectable, Logger } from '@nestjs/common';
 
+import { BraveSearchService } from './brave-search.service';
 import { SiteCrawlerService } from './site-crawler.service';
 
 /** Paginas de producto a recorrer por corrida. Acota el tiempo de un pase. */
@@ -17,6 +19,39 @@ const SUPPORT_PATHS = [
   '/es_AR/soporte',
   '/productos',
 ];
+
+export interface SearchHit {
+  url: string;
+  sourceDomain: string;
+  /** El dominio contiene el nombre de la marca: probablemente sea el fabricante. */
+  official: boolean;
+  /** La URL termina en .pdf: se puede verificar sin abrir la pagina. */
+  direct: boolean;
+  /** Titulo y resumen que devolvio el buscador: suelen nombrar el modelo. */
+  snippet: string;
+}
+
+/**
+ * Por que creemos que el PDF corresponde al modelo, de mas a menos firme:
+ *
+ * - `url`: el modelo entero aparece en la direccion del archivo.
+ * - `contenido`: aparece adentro del PDF.
+ * - `pagina`: la pagina que lo enlaza lo nombra y era el unico PDF.
+ * - `resultado`: el titulo o el resumen del resultado de busqueda lo nombran
+ *   entero. Es la señal que salva a los fabricantes que nombran los PDF por
+ *   linea y no por modelo.
+ * - `tokens`: coincide parte del modelo (`10.12 P ECO` contra `Manual-Next-ECO`).
+ *   La mas debil — y la que hay que revisar a mano.
+ */
+export type MatchReason =
+  'url' | 'contenido' | 'pagina' | 'resultado' | 'tokens';
+
+export interface VerifiedFile {
+  ok: boolean;
+  contentType: string;
+  bytes: number;
+  sha256: string;
+}
 
 export interface FoundManual {
   model: string;
@@ -44,7 +79,127 @@ export interface CrawlOutcome {
 export class ManualFinderService {
   private readonly logger = new Logger(ManualFinderService.name);
 
-  constructor(private readonly site: SiteCrawlerService) {}
+  constructor(
+    private readonly site: SiteCrawlerService,
+    private readonly brave: BraveSearchService,
+  ) {}
+
+  /**
+   * Busca el manual de un modelo puntual, sin restringir a dominios oficiales.
+   *
+   * Recorrer el sitio del fabricante falla seguido: hay marcas que publican en
+   * un subdominio que no esta enlazado (descargas.whirlpool.com.ar), en un CDN
+   * de otro pais, o directamente no publican. La busqueda los encuentra igual.
+   *
+   * Cuesta una consulta del cupo, asi que se usa para los modelos que el crawl
+   * no resolvio, no para todos.
+   */
+  async searchModel(brand: string, model: string): Promise<SearchHit[]> {
+    const results = await this.brave.search(`${brand} ${model} manual pdf`, 8);
+    if (results.length === 0) return [];
+
+    const brandSlug = brand.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const needle = model.toLowerCase();
+
+    return results
+      .map((r) => {
+        const host = URL.canParse(r.url)
+          ? new URL(r.url).hostname.replace(/^www\./, '')
+          : '';
+        const direct = r.url.toLowerCase().includes('.pdf');
+        // Preferir el sitio del fabricante, pero no descartar los agregadores:
+        // para muchos modelos son la unica fuente que tiene el manual.
+        const official = host.replace(/[.-]/g, '').includes(brandSlug);
+        const mentionsModel = `${r.url} ${r.title} ${r.description}`
+          .toLowerCase()
+          .includes(needle);
+
+        return {
+          url: r.url,
+          sourceDomain: host,
+          official,
+          direct,
+          snippet: `${r.title} ${r.description}`,
+          score:
+            (direct ? 50 : 0) + (official ? 30 : 0) + (mentionsModel ? 20 : 0),
+        };
+      })
+      .filter((r) => r.sourceDomain !== '' && r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ score: _score, ...hit }) => hit);
+  }
+
+  /**
+   * Baja el PDF de un candidato de busqueda.
+   *
+   * Muchos resultados no son el PDF sino la pagina de soporte que lo enlaza
+   * (whirlpool.com sirve una ficha por modelo, no el archivo). Abrir esa pagina
+   * y quedarse con el PDF que nombra al modelo no cuesta cupo, solo una
+   * descarga mas, asi que conviene intentarlo antes de descartar el candidato.
+   */
+  async resolvePdf(
+    hit: SearchHit,
+    model: string,
+  ): Promise<{
+    url: string;
+    checked: VerifiedFile;
+    reason: MatchReason;
+  } | null> {
+    const needle = normalizeModel(model);
+    const tokens = significantTokens(model);
+
+    if (hit.direct) {
+      const file = await this.site.fetchBinary(hit.url);
+      if (!file || !isPdf(file)) return null;
+
+      const reason = evidence(hit, needle, tokens, () =>
+        pdfMentions(file.body, needle),
+      );
+
+      // Sin ninguna señal es solo "un PDF que salio en la busqueda": puede ser
+      // el manual de otro producto de la misma marca, o de otro pais.
+      return reason ? { url: hit.url, checked: describe(file), reason } : null;
+    }
+
+    const page = await this.site.fetch(hit.url);
+    if (!page || page.status >= 400 || !page.html) return null;
+
+    const pdfs = extractPdfLinks(hit.sourceDomain, page.html);
+    if (pdfs.length === 0) return null;
+
+    const named = pdfs.filter((u) => normalizeModel(u).includes(needle));
+    for (const url of named.slice(0, 3)) {
+      const checked = await this.verify(url);
+      if (checked?.ok) return { url, checked, reason: 'url' };
+    }
+
+    const rest = pdfs.filter((u) => !named.includes(u));
+    const pageNames = normalizeModel(page.html).includes(needle);
+
+    // La pagina nombra el modelo y enlaza un solo PDF: no hay ambiguedad.
+    if (pageNames && rest.length === 1) {
+      const checked = await this.verify(rest[0]);
+      if (checked?.ok) return { url: rest[0], checked, reason: 'pagina' };
+    }
+
+    // La pagina no lo nombra pero el resultado de busqueda si: vale el PDF que
+    // comparta al menos parte del modelo.
+    const partial = rest.filter((u) => matchesTokens(u, tokens));
+    const fallback: MatchReason | null = normalizeModel(hit.snippet).includes(
+      needle,
+    )
+      ? 'resultado'
+      : partial.length > 0
+        ? 'tokens'
+        : null;
+    if (!fallback) return null;
+
+    for (const url of (partial.length > 0 ? partial : rest).slice(0, 2)) {
+      const checked = await this.verify(url);
+      if (checked?.ok) return { url, checked, reason: fallback };
+    }
+    return null;
+  }
 
   async crawl(
     domain: string,
@@ -197,27 +352,97 @@ export class ManualFinderService {
   }
 
   /** Confirma que la URL devuelve un PDF de verdad y lo identifica por hash. */
-  async verify(url: string): Promise<{
-    ok: boolean;
-    contentType: string;
-    bytes: number;
-    sha256: string;
-  } | null> {
+  async verify(url: string): Promise<VerifiedFile | null> {
     const res = await this.site.fetchBinary(url);
     if (!res) return null;
-
-    const isPdf =
-      res.status < 400 &&
-      (res.contentType.includes('pdf') ||
-        res.body.subarray(0, 4).toString() === '%PDF');
-
-    return {
-      ok: isPdf,
-      contentType: res.contentType,
-      bytes: res.body.length,
-      sha256: createHash('sha256').update(res.body).digest('hex'),
-    };
+    return { ...describe(res), ok: isPdf(res) };
   }
+}
+
+function isPdf(res: { status: number; contentType: string; body: Buffer }) {
+  return (
+    res.status < 400 &&
+    (res.contentType.includes('pdf') ||
+      res.body.subarray(0, 4).toString() === '%PDF')
+  );
+}
+
+function describe(res: { contentType: string; body: Buffer }): VerifiedFile {
+  return {
+    ok: true,
+    contentType: res.contentType,
+    bytes: res.body.length,
+    sha256: createHash('sha256').update(res.body).digest('hex'),
+  };
+}
+
+/**
+ * Busca el modelo adentro del PDF.
+ *
+ * No es un extractor de texto: descomprime los streams y busca la cadena. Con
+ * fuentes embebidas con encoding propio el texto sale ilegible y esto no lo
+ * encuentra, por eso solo sirve para *aceptar*, nunca para descartar: si dice
+ * que no, se cae a las otras señales.
+ */
+function pdfMentions(body: Buffer, needle: string): boolean {
+  let from = 0;
+  for (let n = 0; n < 500; n++) {
+    const start = body.indexOf('stream', from);
+    if (start < 0) break;
+    const end = body.indexOf('endstream', start);
+    if (end < 0) break;
+
+    let s = start + 'stream'.length;
+    if (body[s] === 0x0d) s++;
+    if (body[s] === 0x0a) s++;
+    const raw = body.subarray(s, end);
+    from = end + 'endstream'.length;
+
+    let text: string;
+    try {
+      text = inflateSync(raw).toString('latin1');
+    } catch {
+      text = raw.toString('latin1');
+    }
+    if (normalizeModel(text).includes(needle)) return true;
+  }
+  return normalizeModel(body.toString('latin1')).includes(needle);
+}
+
+/**
+ * Que evidencia hay de que el archivo es el manual de ese modelo, de la mas
+ * firme a la mas floja. `inside` va al final porque implica descomprimir el
+ * PDF entero.
+ */
+function evidence(
+  hit: SearchHit,
+  needle: string,
+  tokens: string[],
+  inside: () => boolean,
+): MatchReason | null {
+  if (normalizeModel(hit.url).includes(needle)) return 'url';
+  if (normalizeModel(hit.snippet).includes(needle)) return 'resultado';
+  if (inside()) return 'contenido';
+  if (matchesTokens(`${hit.url} ${hit.snippet}`, tokens)) return 'tokens';
+  return null;
+}
+
+/**
+ * Partes del modelo que sirven para reconocerlo. Se descartan las de un solo
+ * caracter, que aparecen en cualquier URL por casualidad.
+ */
+function significantTokens(model: string): string[] {
+  return model
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter((t) => t.length >= 2);
+}
+
+/** Alcanza con que una parte del modelo aparezca: los PDF se nombran por linea. */
+function matchesTokens(text: string, tokens: string[]): boolean {
+  if (tokens.length === 0) return false;
+  const haystack = normalizeModel(text);
+  return tokens.some((t) => haystack.includes(t));
 }
 
 function absolute(domain: string, path: string): string {
