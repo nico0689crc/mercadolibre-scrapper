@@ -226,3 +226,26 @@ export interface ManufacturerSegment {
   label: string;
   domains: number;
 }
+
+export interface DomainCandidate {
+  domain: string;
+  sources: ("heuristic" | "search")[];
+  score: number;
+  httpStatus: number | null;
+  looksOfficial: boolean;
+}
+
+export interface DomainResolution {
+  brand: string;
+  slug: string;
+  best: DomainCandidate | null;
+  agreement: boolean;
+  candidates: DomainCandidate[];
+  usedSearch: boolean;
+}
+
+export interface SearchQuotaUsage {
+  used: number;
+  quota: number;
+  period: string;
+}

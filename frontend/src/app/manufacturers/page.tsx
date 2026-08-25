@@ -9,10 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { getManufacturers, getMethodology } from "@/lib/api";
+import { getManufacturers, getMethodology, getSearchQuota } from "@/lib/api";
 import { oneOf } from "@/lib/filters";
 import { count } from "@/lib/format";
-import type { Manufacturer, ManufacturerStatus, Methodology } from "@/types/api";
+import type {
+  Manufacturer,
+  ManufacturerStatus,
+  Methodology,
+  SearchQuotaUsage,
+} from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
@@ -35,13 +40,15 @@ export default async function ManufacturersPage({
 
   let items: Manufacturer[];
   let methodology: Methodology;
+  let quota: SearchQuotaUsage;
   try {
-    [items, methodology] = await Promise.all([
+    [items, methodology, quota] = await Promise.all([
       getManufacturers({
         segment: SEGMENT,
         status: status === "all" ? undefined : (status as ManufacturerStatus),
       }),
       getMethodology(SEGMENT),
+      getSearchQuota(),
     ]);
   } catch (error) {
     return (
@@ -65,6 +72,9 @@ export default async function ManufacturersPage({
           <>
             <Badge variant="outline">{methodology.label}</Badge>
             <Badge variant="secondary">{methodology.domains} dominios</Badge>
+            <Badge variant="outline">
+              Busqueda: {count(quota.used)}/{count(quota.quota)} este mes
+            </Badge>
           </>
         }
       />

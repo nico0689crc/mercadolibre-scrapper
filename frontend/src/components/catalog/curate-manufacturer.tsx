@@ -1,10 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Search, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { acceptManufacturerAction, rejectManufacturerAction } from "@/app/actions";
+import {
+  acceptManufacturerAction,
+  rejectManufacturerAction,
+  resolveDomainAction,
+} from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import type { Manufacturer } from "@/types/api";
+import { Badge } from "@/components/ui/badge";
+import type { DomainResolution, Manufacturer } from "@/types/api";
 
 /**
  * Curacion manual de una marca. Aceptar exige el dominio oficial porque es de
@@ -30,6 +35,25 @@ export function CurateManufacturer({ manufacturer }: { manufacturer: Manufacture
   const [pending, startTransition] = useTransition();
   const [openAccept, setOpenAccept] = useState(false);
   const [openReject, setOpenReject] = useState(false);
+  const [resolution, setResolution] = useState<DomainResolution | null>(null);
+  const [domain, setDomain] = useState(manufacturer.officialDomains[0] ?? "");
+
+  /**
+   * `useSearch` false resuelve solo con la heuristica del nombre y no gasta
+   * cupo de Brave. Se ofrecen las dos porque el cupo gratis es finito.
+   */
+  const suggest = (useSearch: boolean) =>
+    startTransition(async () => {
+      const result = await resolveDomainAction(manufacturer.brandId, useSearch);
+      setResolution(result.resolution ?? null);
+
+      if (result.ok && result.resolution?.best) {
+        setDomain(result.resolution.best.domain);
+        toast.success("Dominio propuesto", { description: result.message });
+      } else {
+        toast.error("Sin propuesta", { description: result.message });
+      }
+    });
 
   const run = (
     action: (id: string, data: FormData) => Promise<{ ok: boolean; message: string }>,
@@ -46,7 +70,7 @@ export function CurateManufacturer({ manufacturer }: { manufacturer: Manufacture
       }
     });
 
-  const suggested = manufacturer.officialDomains[0] ?? "";
+
 
   return (
     <div className="flex items-center gap-1">
@@ -75,14 +99,72 @@ export function CurateManufacturer({ manufacturer }: { manufacturer: Manufacture
                 <Input
                   id={`domains-${manufacturer.brandId}`}
                   name="officialDomains"
-                  defaultValue={suggested}
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
                   placeholder="drean.com.ar, soporte.drean.com.ar"
                   required
                 />
-                <p className="text-muted-foreground text-xs">
-                  Separados por coma. Se limpia solo el <code>https://</code> y lo que
-                  venga despues de la barra.
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={pending}
+                    onClick={() => suggest(true)}
+                  >
+                    {pending ? <Spinner /> : <Sparkles aria-hidden="true" />}
+                    Sugerir (usa 1 consulta)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() => suggest(false)}
+                  >
+                    <Search aria-hidden="true" />
+                    Solo heuristica (gratis)
+                  </Button>
+                </div>
+
+                {resolution ? (
+                  <div className="space-y-2 rounded-md border p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={resolution.agreement ? "default" : "secondary"}>
+                        {resolution.agreement
+                          ? "Las dos fuentes coinciden"
+                          : "Una sola fuente"}
+                      </Badge>
+                      {resolution.usedSearch ? null : (
+                        <Badge variant="outline">sin gastar cupo</Badge>
+                      )}
+                    </div>
+                    <ul className="space-y-1 text-xs">
+                      {resolution.candidates.slice(0, 4).map((c) => (
+                        <li key={c.domain} className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="font-medium hover:underline"
+                            onClick={() => setDomain(c.domain)}
+                          >
+                            {c.domain}
+                          </button>
+                          <span className="text-muted-foreground tabular-nums">
+                            score {c.score} · http {c.httpStatus}
+                          </span>
+                          {c.looksOfficial ? (
+                            <Badge variant="outline">menciona manuales</Badge>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    Separados por coma. Se limpia solo el <code>https://</code> y lo que
+                    venga despues de la barra.
+                  </p>
+                )}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`notes-a-${manufacturer.brandId}`}>

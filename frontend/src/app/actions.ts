@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { acceptManufacturer, rejectManufacturer, runScan } from "@/lib/api";
+import type { DomainResolution } from "@/types/api";
+import {
+  acceptManufacturer,
+  rejectManufacturer,
+  resolveDomain,
+  runScan,
+} from "@/lib/api";
 
 /** Las unicas pantallas con barra de filtros. */
 const FILTERABLE = new Set(["/categories", "/brands", "/products"]);
@@ -115,6 +121,43 @@ export async function rejectManufacturerAction(
     const m = await rejectManufacturer(brandId, { notes: notes || undefined });
     revalidatePath("/manufacturers");
     return { ok: true, message: `${m.name} quedo descartada` };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Error desconocido",
+    };
+  }
+}
+
+
+export interface ResolveActionResult {
+  ok: boolean;
+  message: string;
+  resolution?: DomainResolution;
+}
+
+/**
+ * Propone el dominio oficial de una marca. `useSearch` en false usa solo la
+ * heuristica del nombre y no consume cupo de Brave.
+ */
+export async function resolveDomainAction(
+  brandId: string,
+  useSearch: boolean,
+): Promise<ResolveActionResult> {
+  try {
+    const resolution = await resolveDomain(brandId, useSearch);
+
+    if (!resolution.best) {
+      return { ok: false, message: "Ningun dominio candidato respondio", resolution };
+    }
+
+    const how = resolution.agreement
+      ? "las dos fuentes coinciden"
+      : resolution.usedSearch
+        ? "solo una fuente lo propone"
+        : "solo heuristica, sin gastar cupo";
+
+    return { ok: true, message: `${resolution.best.domain} (${how})`, resolution };
   } catch (error) {
     return {
       ok: false,

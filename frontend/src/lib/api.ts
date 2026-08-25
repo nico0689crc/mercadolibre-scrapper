@@ -13,6 +13,8 @@ import type {
   ManufacturerSegment,
   ManufacturerStatus,
   Methodology,
+  DomainResolution,
+  SearchQuotaUsage,
   ProductDetail,
   ProductList,
   ProductSort,
@@ -188,6 +190,19 @@ export function rejectManufacturer(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function resolveDomain(
+  brandId: string,
+  useSearch = true,
+): Promise<DomainResolution> {
+  return apiFetch<DomainResolution>(
+    `/catalog/manufacturers/${brandId}/resolve-domain${useSearch ? "" : "?search=0"}`,
+  );
+}
+
+export function getSearchQuota(): Promise<SearchQuotaUsage> {
+  return apiFetch<SearchQuotaUsage>("/catalog/manufacturers/quota");
 }
 
 export function getScans(limit = 20): Promise<ScanRun[]> {
