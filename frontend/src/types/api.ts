@@ -249,3 +249,31 @@ export interface SearchQuotaUsage {
   quota: number;
   period: string;
 }
+
+/** Por que creemos que el PDF es el manual de ese modelo. */
+export type ManualMatchReason =
+  "url" | "contenido" | "pagina" | "resultado" | "tokens";
+
+export interface Manual {
+  id: string;
+  brand: string;
+  model: string;
+  modelRaw: string;
+  url: string;
+  sourceDomain: string;
+  bytes: number | null;
+  matchReason: ManualMatchReason | null;
+  verified: boolean;
+  checkedAt: string | null;
+  /** Producto de la misma marca cuyo modelo coincide, si lo tenemos. */
+  productId: string | null;
+  productName: string | null;
+  /** Cuantos productos comparten ese modelo: el PDF cubre a todos. */
+  productCount: number;
+}
+
+export interface ManualStats {
+  total: number;
+  verified: number;
+  brands: number;
+}

@@ -9,6 +9,8 @@ import type {
   CrawlerStatus,
   DomainOption,
   HealthStatus,
+  Manual,
+  ManualStats,
   Manufacturer,
   ManufacturerSegment,
   ManufacturerStatus,
@@ -97,7 +99,9 @@ export interface CategoryFilters {
   offset?: number;
 }
 
-export function getCategories(filters: CategoryFilters = {}): Promise<CategoryList> {
+export function getCategories(
+  filters: CategoryFilters = {},
+): Promise<CategoryList> {
   return apiFetch<CategoryList>(`/catalog/categories${query({ ...filters })}`);
 }
 
@@ -161,11 +165,15 @@ export function getManufacturers(params: {
   segment?: string;
   status?: ManufacturerStatus;
 }): Promise<Manufacturer[]> {
-  return apiFetch<Manufacturer[]>(`/catalog/manufacturers${query({ ...params })}`);
+  return apiFetch<Manufacturer[]>(
+    `/catalog/manufacturers${query({ ...params })}`,
+  );
 }
 
 export function getMethodology(segment: string): Promise<Methodology> {
-  return apiFetch<Methodology>(`/catalog/manufacturers/methodology${query({ segment })}`);
+  return apiFetch<Methodology>(
+    `/catalog/manufacturers/methodology${query({ segment })}`,
+  );
 }
 
 export function getManufacturerSegments(): Promise<ManufacturerSegment[]> {
@@ -199,6 +207,14 @@ export function resolveDomain(
   return apiFetch<DomainResolution>(
     `/catalog/manufacturers/${brandId}/resolve-domain${useSearch ? "" : "?search=0"}`,
   );
+}
+
+export function getManuals(brandId?: string) {
+  return apiFetch<Manual[]>(`/catalog/manuals${query({ brandId })}`);
+}
+
+export function getManualStats() {
+  return apiFetch<ManualStats>("/catalog/manuals/stats");
 }
 
 export function getSearchQuota(): Promise<SearchQuotaUsage> {
