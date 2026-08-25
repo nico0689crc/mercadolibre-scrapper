@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 
+import { CurateManufacturer } from "@/components/catalog/curate-manufacturer";
 import { ManufacturerStatusBadge } from "@/components/catalog/manufacturer-status-badge";
 import { HeaderHint } from "@/components/catalog/sort-header";
 import {
@@ -14,7 +15,18 @@ import { count } from "@/lib/format";
 import type { Manufacturer } from "@/types/api";
 
 /** Fabricantes del segmento, con el porque de cada uno a la vista. */
-export function ManufacturersTable({ items }: { items: Manufacturer[] }) {
+export function ManufacturersTable({
+  items,
+  thresholds,
+}: {
+  items: Manufacturer[];
+  thresholds: { minProducts: number; minModels: number };
+}) {
+  /** Para un candidato, el texto explica el umbral concreto que cumplio. */
+  const why = (m: Manufacturer) =>
+    m.notes ??
+    `Cumple el umbral: ${m.models} modelos distintos (minimo ${thresholds.minModels}) sobre ${m.products} productos (minimo ${thresholds.minProducts}). Falta confirmar el dominio oficial.`;
+
   return (
     <Table>
       <TableHeader>
@@ -30,6 +42,7 @@ export function ManufacturersTable({ items }: { items: Manufacturer[] }) {
           <TableHead className="text-right">Productos</TableHead>
           <TableHead>Dominio oficial</TableHead>
           <TableHead>Por que</TableHead>
+          <TableHead className="text-right">Curar</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -68,7 +81,12 @@ export function ManufacturersTable({ items }: { items: Manufacturer[] }) {
               )}
             </TableCell>
             <TableCell className="text-muted-foreground max-w-md text-sm text-pretty">
-              {m.notes ?? "Paso el umbral automatico; falta curarla a mano."}
+              {why(m)}
+            </TableCell>
+            <TableCell className="text-right">
+              <div className="flex justify-end">
+                <CurateManufacturer manufacturer={m} />
+              </div>
             </TableCell>
           </TableRow>
         ))}

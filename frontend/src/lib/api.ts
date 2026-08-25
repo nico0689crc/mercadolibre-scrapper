@@ -170,6 +170,26 @@ export function getManufacturerSegments(): Promise<ManufacturerSegment[]> {
   return apiFetch<ManufacturerSegment[]>("/catalog/manufacturers/segments");
 }
 
+export function acceptManufacturer(
+  brandId: string,
+  body: { officialDomains: string[]; notes?: string },
+): Promise<Manufacturer> {
+  return apiFetch<Manufacturer>(`/catalog/manufacturers/${brandId}/accept`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function rejectManufacturer(
+  brandId: string,
+  body: { notes?: string },
+): Promise<Manufacturer> {
+  return apiFetch<Manufacturer>(`/catalog/manufacturers/${brandId}/reject`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function getScans(limit = 20): Promise<ScanRun[]> {
   return apiFetch<ScanRun[]>(`/catalog/scans?limit=${limit}`);
 }

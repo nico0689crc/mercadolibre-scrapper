@@ -94,7 +94,16 @@ export default async function ManufacturersPage({
           <CardTitle>{count(items.length)} marcas</CardTitle>
           <CardDescription>
             Ordenadas por cantidad de modelos distintos en el segmento, que es la señal
-            que sostiene el criterio.
+            que sostiene el criterio. El umbral automatico es{" "}
+            <strong className="text-foreground">
+              {methodology.thresholds.minModels} modelos distintos
+            </strong>{" "}
+            y{" "}
+            <strong className="text-foreground">
+              {methodology.thresholds.minProducts} productos
+            </strong>{" "}
+            dentro de los {methodology.domains} dominios del segmento. Pasarlo hace a la
+            marca candidata, no fabricante: eso se confirma a mano.
           </CardDescription>
         </CardHeader>
         {items.length === 0 ? (
@@ -108,7 +117,7 @@ export default async function ManufacturersPage({
           </Empty>
         ) : (
           <div className="overflow-x-auto">
-            <ManufacturersTable items={items} />
+            <ManufacturersTable items={items} thresholds={methodology.thresholds} />
           </div>
         )}
       </Card>

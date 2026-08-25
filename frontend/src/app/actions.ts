@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { runScan } from "@/lib/api";
+import { acceptManufacturer, rejectManufacturer, runScan } from "@/lib/api";
 
 /** Las unicas pantallas con barra de filtros. */
 const FILTERABLE = new Set(["/categories", "/brands", "/products"]);
@@ -54,6 +54,67 @@ export async function scanCategoryAction(categoryId: string): Promise<ScanAction
       ok: true,
       message: `${run.brandsFound} marcas sobre ${run.sampled.toLocaleString("es-AR")} productos (${run.brandsNew} nuevas)`,
     };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Error desconocido",
+    };
+  }
+}
+
+
+export interface CurateActionResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Acepta una marca como fabricante. El dominio oficial no es un adorno: es de
+ * donde se va a bajar el manual, asi que sin el la marca no sirve para nada.
+ */
+export async function acceptManufacturerAction(
+  brandId: string,
+  formData: FormData,
+): Promise<CurateActionResult> {
+  const raw = String(formData.get("officialDomains") ?? "");
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  // Acepta "drean.com.ar, www.drean.com.ar" y limpia protocolo y barras.
+  const officialDomains = raw
+    .split(/[,\s]+/)
+    .map((d) => d.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase())
+    .filter(Boolean);
+
+  if (officialDomains.length === 0) {
+    return { ok: false, message: "Hace falta al menos un dominio oficial" };
+  }
+
+  try {
+    const m = await acceptManufacturer(brandId, {
+      officialDomains,
+      notes: notes || undefined,
+    });
+    revalidatePath("/manufacturers");
+    return { ok: true, message: `${m.name} quedo verificada en ${officialDomains[0]}` };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Error desconocido",
+    };
+  }
+}
+
+/** Descarta la marca: vendedor de marketplace, marca propia de retail o basura. */
+export async function rejectManufacturerAction(
+  brandId: string,
+  formData: FormData,
+): Promise<CurateActionResult> {
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  try {
+    const m = await rejectManufacturer(brandId, { notes: notes || undefined });
+    revalidatePath("/manufacturers");
+    return { ok: true, message: `${m.name} quedo descartada` };
   } catch (error) {
     return {
       ok: false,
