@@ -183,3 +183,46 @@ export interface ScanRun {
   error: string | null;
   createdAt: string;
 }
+
+export type ManufacturerStatus = "candidate" | "verified" | "rejected";
+
+export interface Manufacturer {
+  brandId: string;
+  name: string;
+  mlValueId: string | null;
+  status: ManufacturerStatus;
+  segment: string;
+  officialDomains: string[];
+  evidenceUrl: string | null;
+  notes: string | null;
+  products: number;
+  models: number;
+  verifiedAt: string | null;
+}
+
+/** Una marca del segmento con las señales que se evaluaron sobre ella. */
+export interface SignalRow {
+  brandId: string;
+  brand: string;
+  status: ManufacturerStatus | null;
+  products: number;
+  models: number;
+  gtinPct: number;
+  gtinValidPct: number;
+}
+
+export interface Methodology {
+  segment: string;
+  label: string;
+  domains: number;
+  thresholds: { minProducts: number; minModels: number };
+  funnel: { brandsInSegment: number; candidates: number };
+  counts: Record<ManufacturerStatus, number>;
+  signals: SignalRow[];
+}
+
+export interface ManufacturerSegment {
+  key: string;
+  label: string;
+  domains: number;
+}

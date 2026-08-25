@@ -22,6 +22,43 @@ import { SEGMENTS, segmentDomains } from './segments';
 const MIN_PRODUCTS = 5;
 const MIN_MODELS = 3;
 
+/**
+ * Digito verificador de EAN/UPC: desde la derecha, los digitos alternan peso
+ * 3 y 1, y el total mas el verificador tiene que ser multiplo de 10.
+ */
+function isValidGtin(raw: string): boolean {
+  const digits = raw.replace(/\D/g, '');
+  if (![8, 12, 13, 14].includes(digits.length)) return false;
+
+  const body = digits.slice(0, -1).split('').reverse().map(Number);
+  const check = Number(digits.at(-1));
+  const sum = body.reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+}
+
+/** Una marca del segmento con las señales que se evaluaron sobre ella. */
+export interface SignalRow {
+  brandId: string;
+  brand: string;
+  status: ManufacturerStatus | null;
+  products: number;
+  models: number;
+  /** % de productos de la marca que declaran GTIN. */
+  gtinPct: number;
+  /** % de esos GTIN cuyo digito verificador es correcto. */
+  gtinValidPct: number;
+}
+
+export interface Methodology {
+  segment: string;
+  label: string;
+  domains: number;
+  thresholds: { minProducts: number; minModels: number };
+  funnel: { brandsInSegment: number; candidates: number };
+  counts: { candidate: number; verified: number; rejected: number };
+  signals: SignalRow[];
+}
+
 export interface ManufacturerCandidate {
   brandId: string;
   name: string;
@@ -178,6 +215,103 @@ export class ManufacturersService {
       );
     }
     return m;
+  }
+
+  /**
+   * Por que estas marcas son fabricantes: los numeros que sostienen el criterio,
+   * calculados en vivo sobre la base. No hay constantes escritas a mano aca.
+   */
+  async methodology(segment: string): Promise<Methodology> {
+    const domains = segmentDomains(segment);
+    if (domains.length === 0) {
+      throw new BadRequestException(`Segmento desconocido: ${segment}`);
+    }
+
+    const [all, passing, counts] = await Promise.all([
+      this.candidates(segment, true),
+      this.candidates(segment, false),
+      this.counts(),
+    ]);
+
+    // Muestra de contraste: los curados en ambos sentidos y los candidatos mas
+    // grandes. Es donde se ve que el GTIN no separa y los modelos si.
+    const reference = [
+      ...all.filter((c) => c.status === 'verified'),
+      ...all.filter((c) => c.status === 'rejected'),
+      ...passing
+        .filter((c) => c.status !== 'verified' && c.status !== 'rejected')
+        .slice(0, 6),
+    ];
+
+    const signals = await this.gtinSignals(domains, reference);
+
+    return {
+      segment,
+      label: SEGMENTS[segment].label,
+      domains: domains.length,
+      thresholds: { minProducts: MIN_PRODUCTS, minModels: MIN_MODELS },
+      funnel: { brandsInSegment: all.length, candidates: passing.length },
+      counts: {
+        candidate: counts.find((c) => c.status === 'candidate')?.total ?? 0,
+        verified: counts.find((c) => c.status === 'verified')?.total ?? 0,
+        rejected: counts.find((c) => c.status === 'rejected')?.total ?? 0,
+      },
+      signals,
+    };
+  }
+
+  /**
+   * Mide, por marca, cuantos productos declaran GTIN y cuantos de esos tienen
+   * el digito verificador correcto. Es la señal que uno esperaria que separara
+   * fabricante de revendedor y que en los datos no lo hace.
+   */
+  private async gtinSignals(
+    domains: string[],
+    reference: ManufacturerCandidate[],
+  ): Promise<SignalRow[]> {
+    if (reference.length === 0) return [];
+
+    const rows = await this.dataSource.query<
+      { brand_id: string; gtin: string | null }[]
+    >(
+      `
+      SELECT p.brand_id,
+             (SELECT a->>'value_name' FROM jsonb_array_elements(p.attributes) a
+               WHERE a->>'id' = 'GTIN') AS gtin
+      FROM products p
+      WHERE p.domain_id = ANY($1::varchar[])
+        AND p.brand_id = ANY($2::uuid[])
+      `,
+      [domains, reference.map((r) => r.brandId)],
+    );
+
+    const stats = new Map<
+      string,
+      { total: number; withGtin: number; valid: number }
+    >();
+    for (const row of rows) {
+      const s = stats.get(row.brand_id) ?? { total: 0, withGtin: 0, valid: 0 };
+      s.total += 1;
+      if (row.gtin) {
+        s.withGtin += 1;
+        if (isValidGtin(row.gtin)) s.valid += 1;
+      }
+      stats.set(row.brand_id, s);
+    }
+
+    return reference.map((r) => {
+      const s = stats.get(r.brandId) ?? { total: 0, withGtin: 0, valid: 0 };
+      return {
+        brandId: r.brandId,
+        brand: r.name,
+        status: r.status,
+        products: r.products,
+        models: r.models,
+        gtinPct: s.total > 0 ? Math.round((100 * s.withGtin) / s.total) : 0,
+        gtinValidPct:
+          s.withGtin > 0 ? Math.round((100 * s.valid) / s.withGtin) : 0,
+      };
+    });
   }
 
   counts() {

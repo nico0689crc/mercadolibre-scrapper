@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Boxes,
+  Factory,
   FolderTree,
   LayoutDashboard,
   Package,
@@ -67,6 +68,7 @@ export function AppSidebar({
     },
     { href: "/brands", label: "Marcas", icon: Tags, count: stats?.brands },
     { href: "/products", label: "Productos", icon: Package, count: stats?.products },
+    { href: "/manufacturers", label: "Fabricantes", icon: Factory },
   ];
 
   const isActive = (href: string) =>

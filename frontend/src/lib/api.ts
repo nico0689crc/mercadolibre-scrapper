@@ -9,6 +9,10 @@ import type {
   CrawlerStatus,
   DomainOption,
   HealthStatus,
+  Manufacturer,
+  ManufacturerSegment,
+  ManufacturerStatus,
+  Methodology,
   ProductDetail,
   ProductList,
   ProductSort,
@@ -149,6 +153,21 @@ export function getProduct(id: string): Promise<ProductDetail> {
 /** Estado del llenado progresivo. Lo muestra la barra lateral y el resumen. */
 export function getCrawler(): Promise<CrawlerStatus> {
   return apiFetch<CrawlerStatus>("/catalog/crawler");
+}
+
+export function getManufacturers(params: {
+  segment?: string;
+  status?: ManufacturerStatus;
+}): Promise<Manufacturer[]> {
+  return apiFetch<Manufacturer[]>(`/catalog/manufacturers${query({ ...params })}`);
+}
+
+export function getMethodology(segment: string): Promise<Methodology> {
+  return apiFetch<Methodology>(`/catalog/manufacturers/methodology${query({ segment })}`);
+}
+
+export function getManufacturerSegments(): Promise<ManufacturerSegment[]> {
+  return apiFetch<ManufacturerSegment[]>("/catalog/manufacturers/segments");
 }
 
 export function getScans(limit = 20): Promise<ScanRun[]> {

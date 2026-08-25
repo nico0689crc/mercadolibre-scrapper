@@ -193,6 +193,12 @@ export class CatalogController {
     );
   }
 
+  /** Los numeros que sostienen el criterio, calculados en vivo sobre la base. */
+  @Get('manufacturers/methodology')
+  getMethodology(@Query() query: SegmentDto) {
+    return this.manufacturers.methodology(query.segment);
+  }
+
   /** Fabricantes ya registrados, filtrables por segmento y estado. */
   @Get('manufacturers')
   listManufacturers(@Query() query: ListManufacturersDto) {
