@@ -2,7 +2,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
-import { Manual, Manufacturer } from '../database/entities';
+import { Brand, Manual, Manufacturer } from '../database/entities';
+import { BraveSearchService } from '../search/brave-search.service';
+import { brandSlug } from './brands-store.service';
+import type { ImportManualsDto } from './dto/import-manuals.dto';
 import type {
   MatchReason,
   SearchHit,
@@ -12,6 +15,15 @@ import {
   ManualFinderService,
   normalizeModel,
 } from '../search/manual-finder.service';
+
+export interface ImportReport {
+  recibidos: number;
+  guardados: number;
+  /** Marcas que el otro entorno tiene y esta base no. */
+  sinMarca: string[];
+  /** Como quedo el contador del cupo, si se pidio actualizarlo. */
+  cupo: { used: number; quota: number; period: string } | null;
+}
 
 export interface ManualRow {
   id: string;
@@ -73,7 +85,10 @@ export class ManualsService {
     private readonly manuals: Repository<Manual>,
     @InjectRepository(Manufacturer)
     private readonly manufacturers: Repository<Manufacturer>,
+    @InjectRepository(Brand)
+    private readonly brands: Repository<Brand>,
     private readonly finder: ManualFinderService,
+    private readonly brave: BraveSearchService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -291,6 +306,77 @@ export class ManualsService {
 
     this.logger.log(
       `${report.brand}: busque ${report.tried} modelos, ${report.verified} manuales confirmados (${report.fromOfficial} de dominio oficial)`,
+    );
+    return report;
+  }
+
+  /**
+   * Trae los manuales que encontro otro entorno.
+   *
+   * Es la contracara de tener dos bases contra la misma cuenta de Brave: lo que
+   * ya se pago buscando en un lado no se vuelve a pagar en el otro. Las marcas
+   * se resuelven por `slug`, porque los uuid son por base y no coinciden.
+   */
+  async importFrom(payload: ImportManualsDto): Promise<ImportReport> {
+    const report: ImportReport = {
+      recibidos: payload.manuals.length,
+      guardados: 0,
+      sinMarca: [],
+      cupo: null,
+    };
+
+    for (const item of payload.manuals) {
+      const slug = brandSlug(item.brand);
+      const brand = await this.brands.findOne({ where: { slug } });
+      if (!brand) {
+        if (!report.sinMarca.includes(item.brand)) {
+          report.sinMarca.push(item.brand);
+        }
+        continue;
+      }
+
+      await this.dataSource.query(
+        `INSERT INTO manuals
+           (brand_id, model, model_raw, url, source_domain, found_at_url,
+            content_type, bytes, sha256, match_reason, verified, checked_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true, now())
+         ON CONFLICT (brand_id, model) DO UPDATE SET
+           url = EXCLUDED.url, source_domain = EXCLUDED.source_domain,
+           found_at_url = EXCLUDED.found_at_url,
+           content_type = EXCLUDED.content_type, bytes = EXCLUDED.bytes,
+           sha256 = EXCLUDED.sha256, match_reason = EXCLUDED.match_reason,
+           verified = true, checked_at = now(), updated_at = now()`,
+        [
+          brand.id,
+          normalizeModel(item.modelRaw),
+          item.modelRaw,
+          item.url,
+          item.sourceDomain,
+          item.foundAtUrl ?? null,
+          item.contentType ?? null,
+          item.bytes ?? null,
+          item.sha256 ?? null,
+          item.matchReason ?? null,
+        ],
+      );
+      report.guardados += 1;
+    }
+
+    if (payload.searchQuotaUsed !== undefined) {
+      report.cupo = await this.brave.raiseUsedTo(payload.searchQuotaUsed);
+    }
+
+    // Los contadores por marca quedan viejos despues de importar.
+    await this.dataSource.query(
+      `UPDATE manufacturers mf
+       SET manuals_found = (SELECT count(*) FROM manuals m WHERE m.brand_id = mf.brand_id)`,
+    );
+
+    this.logger.log(
+      `Importados ${report.guardados} de ${report.recibidos} manuales` +
+        (report.sinMarca.length > 0
+          ? `; sin marca en esta base: ${report.sinMarca.join(', ')}`
+          : ''),
     );
     return report;
   }

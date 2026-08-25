@@ -65,6 +65,26 @@ export class BraveSearchService {
     return { used: row?.used ?? 0, quota: this.monthlyQuota, period };
   }
 
+  /**
+   * Sube el contador a lo que ya se gasto en otro entorno, nunca lo baja.
+   *
+   * El cupo es de la cuenta de Brave, no de la base: dos entornos contando por
+   * separado se pasan del limite real sin enterarse.
+   */
+  async raiseUsedTo(
+    used: number,
+  ): Promise<{ used: number; quota: number; period: string }> {
+    const period = currentPeriod();
+    await this.quota.query(
+      `INSERT INTO search_quota (provider, period, used)
+       VALUES ('brave', $1, $2)
+       ON CONFLICT (provider, period) DO UPDATE
+         SET used = GREATEST(search_quota.used, EXCLUDED.used), updated_at = now()`,
+      [period, used],
+    );
+    return this.usage();
+  }
+
   async search(query: string, count = 5): Promise<BraveResult[]> {
     if (!this.configured) {
       throw new ServiceUnavailableException(

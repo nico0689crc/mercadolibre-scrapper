@@ -10,6 +10,7 @@ import {
 } from './categories-store.service';
 import { CrawlerService, type CrawlerStatus } from './crawler.service';
 import { CrawlerSettingsDto } from './dto/crawler-settings.dto';
+import { ImportManualsDto } from './dto/import-manuals.dto';
 import { ListBrandsDto } from './dto/list-brands.dto';
 import {
   AcceptManufacturerDto,
@@ -290,6 +291,12 @@ export class CatalogController {
       brandId,
       Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 50) : 10,
     );
+  }
+
+  /** Trae los manuales que encontro otro entorno, para no volver a pagarlos. */
+  @Post('manuals/import')
+  importManuals(@Body() body: ImportManualsDto) {
+    return this.manuals.importFrom(body);
   }
 
   /** Manuales ya descubiertos. */
