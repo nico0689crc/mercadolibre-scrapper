@@ -9,6 +9,7 @@ import {
   rejectManufacturer,
   resolveDomain,
   runScan,
+  setManualCrawler,
 } from "@/lib/api";
 
 /** Las unicas pantallas con barra de filtros. */
@@ -45,7 +46,9 @@ export interface ScanActionResult {
 }
 
 /** Dispara un scan de marcas contra ML y refresca la pagina de la categoria. */
-export async function scanCategoryAction(categoryId: string): Promise<ScanActionResult> {
+export async function scanCategoryAction(
+  categoryId: string,
+): Promise<ScanActionResult> {
   try {
     const run = await runScan(categoryId);
 
@@ -68,7 +71,6 @@ export async function scanCategoryAction(categoryId: string): Promise<ScanAction
   }
 }
 
-
 export interface CurateActionResult {
   ok: boolean;
   message: string;
@@ -88,7 +90,13 @@ export async function acceptManufacturerAction(
   // Acepta "drean.com.ar, www.drean.com.ar" y limpia protocolo y barras.
   const officialDomains = raw
     .split(/[,\s]+/)
-    .map((d) => d.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase())
+    .map((d) =>
+      d
+        .trim()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/.*$/, "")
+        .toLowerCase(),
+    )
     .filter(Boolean);
 
   if (officialDomains.length === 0) {
@@ -101,7 +109,10 @@ export async function acceptManufacturerAction(
       notes: notes || undefined,
     });
     revalidatePath("/manufacturers");
-    return { ok: true, message: `${m.name} quedo verificada en ${officialDomains[0]}` };
+    return {
+      ok: true,
+      message: `${m.name} quedo verificada en ${officialDomains[0]}`,
+    };
   } catch (error) {
     return {
       ok: false,
@@ -129,7 +140,6 @@ export async function rejectManufacturerAction(
   }
 }
 
-
 export interface ResolveActionResult {
   ok: boolean;
   message: string;
@@ -148,7 +158,11 @@ export async function resolveDomainAction(
     const resolution = await resolveDomain(brandId, useSearch);
 
     if (!resolution.best) {
-      return { ok: false, message: "Ningun dominio candidato respondio", resolution };
+      return {
+        ok: false,
+        message: "Ningun dominio candidato respondio",
+        resolution,
+      };
     }
 
     const how = resolution.agreement
@@ -157,7 +171,45 @@ export async function resolveDomainAction(
         ? "solo una fuente lo propone"
         : "solo heuristica, sin gastar cupo";
 
-    return { ok: true, message: `${resolution.best.domain} (${how})`, resolution };
+    return {
+      ok: true,
+      message: `${resolution.best.domain} (${how})`,
+      resolution,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Error desconocido",
+    };
+  }
+}
+
+export interface ManualCrawlerActionResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Prende o apaga el worker de manuales.
+ *
+ * Prenderlo no es gratis: cada modelo que busca gasta una consulta del cupo
+ * mensual de Brave, por eso el mensaje devuelve cuanto queda.
+ */
+export async function toggleManualCrawlerAction(
+  enabled: boolean,
+): Promise<ManualCrawlerActionResult> {
+  try {
+    const status = await setManualCrawler(enabled);
+    revalidatePath("/manuals");
+    revalidatePath("/");
+
+    const left = status.search.ceiling - status.search.used;
+    return {
+      ok: true,
+      message: enabled
+        ? `Busca 3 modelos por vez; le quedan ${left.toLocaleString("es-AR")} consultas del cupo`
+        : "No va a buscar mas hasta que lo vuelvas a prender",
+    };
   } catch (error) {
     return {
       ok: false,

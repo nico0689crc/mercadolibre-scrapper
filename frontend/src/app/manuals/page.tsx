@@ -1,3 +1,4 @@
+import { ManualCrawlerCard } from "@/components/catalog/manual-crawler-card";
 import { ManualsTable } from "@/components/catalog/manuals-table";
 import { PageHeader } from "@/components/layout/page-header";
 import { PageShell } from "@/components/layout/page-shell";
@@ -15,9 +16,9 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { getManualStats, getManuals, getSearchQuota } from "@/lib/api";
+import { getManualCrawler, getManualStats, getManuals } from "@/lib/api";
 import { count } from "@/lib/format";
-import type { Manual, ManualStats, SearchQuotaUsage } from "@/types/api";
+import type { Manual, ManualCrawlerStatus, ManualStats } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +27,12 @@ const CRUMBS = [{ href: "/", label: "Resumen" }, { label: "Manuales" }];
 export default async function ManualsPage() {
   let items: Manual[];
   let stats: ManualStats;
-  let quota: SearchQuotaUsage;
+  let crawler: ManualCrawlerStatus;
   try {
-    [items, stats, quota] = await Promise.all([
+    [items, stats, crawler] = await Promise.all([
       getManuals(),
       getManualStats(),
-      getSearchQuota(),
+      getManualCrawler(),
     ]);
   } catch (error) {
     return (
@@ -55,11 +56,14 @@ export default async function ManualsPage() {
           <>
             <Badge variant="secondary">{count(stats.brands)} marcas</Badge>
             <Badge variant="outline">
-              Busqueda: {count(quota.used)}/{count(quota.quota)} este mes
+              Busqueda: {count(crawler.search.used)}/
+              {count(crawler.search.quota)} este mes
             </Badge>
           </>
         }
       />
+
+      <ManualCrawlerCard crawler={crawler} />
 
       <Card>
         <CardHeader>

@@ -10,6 +10,7 @@ import type {
   DomainOption,
   HealthStatus,
   Manual,
+  ManualCrawlerStatus,
   ManualStats,
   Manufacturer,
   ManufacturerSegment,
@@ -206,6 +207,20 @@ export function resolveDomain(
 ): Promise<DomainResolution> {
   return apiFetch<DomainResolution>(
     `/catalog/manufacturers/${brandId}/resolve-domain${useSearch ? "" : "?search=0"}`,
+  );
+}
+
+export function getManualCrawler(): Promise<ManualCrawlerStatus> {
+  return apiFetch<ManualCrawlerStatus>("/catalog/manuals/crawler");
+}
+
+/** Prende o apaga el worker de manuales. El estado vive en la base. */
+export function setManualCrawler(
+  enabled: boolean,
+): Promise<ManualCrawlerStatus> {
+  return apiFetch<ManualCrawlerStatus>(
+    `/catalog/manuals/crawler/${enabled ? "start" : "stop"}`,
+    { method: "POST", body: JSON.stringify({}) },
   );
 }
 

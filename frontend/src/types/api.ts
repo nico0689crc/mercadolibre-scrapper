@@ -277,3 +277,20 @@ export interface ManualStats {
   verified: number;
   brands: number;
 }
+
+export interface ManualCrawlerStatus {
+  enabled: boolean;
+  running: boolean;
+  restaleDays: number;
+  verify: boolean;
+  lastBrandName: string | null;
+  lastRunAt: string | null;
+  lastError: string | null;
+  /** El sitio de turno solo acepta visitas en una franja horaria. */
+  waitingForWindow: boolean;
+  pending: number;
+  done: number;
+  manuals: number;
+  /** Cupo de busqueda: gastado, total y hasta donde puede gastar el worker. */
+  search: { used: number; quota: number; ceiling: number };
+}
