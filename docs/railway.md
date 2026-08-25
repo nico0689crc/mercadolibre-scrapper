@@ -109,3 +109,36 @@ backend, hay que sacar el crawler a un servicio aparte (Railway soporta `cronSch
 
 `docker-compose.yml`, `docker-compose.prod.yml` y el servicio `ngrok` son solo para local.
 En Railway el HTTPS lo da la plataforma, asi que el tunel no hace falta.
+
+## Mantener produccion al dia
+
+El **esquema** viaja solo: `migrationsRun: true` aplica las migraciones al arrancar,
+asi que un push que incluya migraciones deja la base de produccion actualizada sin
+intervencion.
+
+Los **datos** se dividen en dos:
+
+- **Lo que se recomputa**: categorias, marcas, productos y candidatos a fabricante.
+  No hay que copiarlos. En produccion se regeneran con `POST /api/catalog/sync`,
+  el crawler de catalogo y `POST /api/catalog/manufacturers/detect`.
+- **Lo que NO se recomputa**: la curacion de fabricantes (que marca es fabricante y
+  cual es su dominio oficial). Es criterio humano y hay que replicarlo.
+
+Para replicar la curacion, exportarla de local:
+
+```sql
+SELECT json_agg(row_to_json(t)) FROM (
+  SELECT b.name, m.status, m.official_domains, m.notes
+  FROM manufacturers m JOIN brands b ON b.id = m.brand_id
+  WHERE m.status IN ('verified','rejected')
+) t;
+```
+
+y aplicarla contra produccion resolviendo cada nombre a su `brandId` de alla (los
+uuid son por base, no coinciden entre entornos) y llamando a
+`POST /api/catalog/manufacturers/{brandId}/accept` o `/reject`.
+
+**El orden importa**: primero `detect` en produccion, que crea las filas `candidate`
+a partir de sus propios productos; recien despues se pueden aceptar o rechazar.
+
+Las variables de `BRAVE_API_KEY` van seteadas en el servicio, no en el repo.
